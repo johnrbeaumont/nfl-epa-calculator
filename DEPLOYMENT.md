@@ -1,0 +1,150 @@
+# Deployment Guide
+
+## Overview
+This guide covers deploying the NFL EPA Calculator application with:
+- **Backend**: FastAPI + XGBoost models on Render
+- **Frontend**: React + Vite on Vercel
+
+## Prerequisites
+- GitHub account
+- Render account (free tier available)
+- Vercel account (free tier available)
+- Git installed locally
+
+---
+
+## Step 1: Prepare Repository
+
+### 1.1 Commit All Changes
+```bash
+cd /Users/03jbm/Documents/NFLapp/nfl-epa-calculator
+
+# Add all files
+git add .
+
+# Commit
+git commit -m "Prepare for deployment - add env config and deployment files"
+```
+
+### 1.2 Create GitHub Repository
+1. Go to https://github.com/new
+2. Create a new repository (e.g., `nfl-epa-calculator`)
+3. Don't initialize with README (we already have files)
+
+### 1.3 Push to GitHub
+```bash
+# Add remote (replace YOUR_USERNAME with your GitHub username)
+git remote add origin https://github.com/YOUR_USERNAME/nfl-epa-calculator.git
+
+# Push
+git branch -M main
+git push -u origin main
+```
+
+---
+
+## Step 2: Deploy Backend to Render
+
+### 2.1 Create New Web Service
+1. Go to https://dashboard.render.com
+2. Click "New +" → "Web Service"
+3. Connect your GitHub repository
+4. Configure:
+   - **Name**: `nfl-epa-api`
+   - **Region**: Choose closest to your users
+   - **Branch**: `main`
+   - **Root Directory**: `backend`
+   - **Runtime**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+### 2.2 Environment Variables
+Render auto-detects most settings. No additional env vars needed for basic deployment.
+
+### 2.3 Deploy
+1. Click "Create Web Service"
+2. Wait for deployment (5-10 minutes first time)
+3. Once deployed, note your backend URL: `https://nfl-epa-api.onrender.com`
+
+### 2.4 Test Backend
+```bash
+curl https://nfl-epa-api.onrender.com/api/health
+```
+
+---
+
+## Step 3: Deploy Frontend to Vercel
+
+### 3.1 Deploy via Vercel Dashboard
+1. Go to https://vercel.com/new
+2. Import your GitHub repository
+3. Configure:
+   - **Framework Preset**: Vite
+   - **Root Directory**: `frontend`
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+
+### 3.2 Set Environment Variable
+In Vercel dashboard:
+1. Go to Project Settings → Environment Variables
+2. Add:
+   - **Name**: `VITE_API_URL`
+   - **Value**: `https://nfl-epa-api.onrender.com` (your Render URL)
+   - **Scope**: Production, Preview, Development
+
+### 3.3 Deploy
+1. Click "Deploy"
+2. Wait for build (2-3 minutes)
+3. Your app will be live at: `https://your-app.vercel.app`
+
+---
+
+## Step 4: Update Backend CORS
+
+After deployment, update the backend to allow requests from your Vercel domain.
+
+### 4.1 Update main.py
+In `backend/app/main.py`, update CORS origins:
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "https://your-app.vercel.app",  # Add your Vercel URL
+        "https://*.vercel.app"  # Allow all Vercel preview deployments
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+### 4.2 Commit and Push
+```bash
+git add backend/app/main.py
+git commit -m "Update CORS for production"
+git push
+```
+
+Render will auto-deploy the update.
+
+---
+
+## Quick Start (Automated)
+
+I can help you deploy automatically. Just let me know and I'll:
+1. Commit all changes to git
+2. Guide you through creating GitHub repo
+3. Provide commands to push to GitHub
+4. Walk you through Render setup
+5. Walk you through Vercel setup
+
+---
+
+## Cost Estimate
+
+**Free Tier:**
+- Render: Free (with spin-down after 15 min inactivity)
+- Vercel: Free (100GB bandwidth/month)
+- **Total: $0/month**

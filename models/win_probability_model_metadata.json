@@ -1,0 +1,59 @@
+{
+  "model_type": "XGBoost Classifier",
+  "features": [
+    "score_diff_home",
+    "game_seconds_remaining",
+    "field_position_home_perspective",
+    "down",
+    "ydstogo",
+    "posteam_timeouts_remaining",
+    "defteam_timeouts_remaining",
+    "red_zone",
+    "fourth_quarter",
+    "is_home_offense"
+  ],
+  "training_samples": 203877,
+  "test_samples": 60826,
+  "seasons": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "train_seasons": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022
+  ],
+  "test_seasons": [
+    2023,
+    2024
+  ],
+  "performance": {
+    "log_loss": 0.5274594017005783,
+    "brier_score": 0.18009400367736816,
+    "auc_roc": 0.8010233783452513,
+    "accuracy": 0.7169138197481341
+  },
+  "feature_importance": {
+    "score_diff_home": 0.5160737633705139,
+    "fourth_quarter": 0.14955367147922516,
+    "is_home_offense": 0.11210086196660995,
+    "posteam_timeouts_remaining": 0.046662453562021255,
+    "game_seconds_remaining": 0.04240066930651665,
+    "red_zone": 0.03098895773291588,
+    "field_position_home_perspective": 0.030764641240239143,
+    "defteam_timeouts_remaining": 0.027534373104572296,
+    "down": 0.02750358358025551,
+    "ydstogo": 0.016417084261775017
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "model_type": "XGBoost Regressor",
+  "features": [
+    "down",
+    "ydstogo",
+    "yardline_100",
+    "red_zone",
+    "home_field_advantage"
+  ],
+  "target": "ep",
+  "training_samples": 285657,
+  "seasons": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "performance": {
+    "mae": 0.22781772249274784,
+    "rmse": 0.339114180904195,
+    "r2": 0.9623518453703986,
+    "calibration_error": 0.013983553702517365
+  },
+  "hyperparameters": {
+    "n_estimators": 200,
+    "max_depth": 6,
+    "learning_rate": 0.1,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8
+  },
+  "feature_importance": [
+    {
+      "feature": "red_zone",
+      "importance": 0.6414408683776855
+    },
+    {
+      "feature": "yardline_100",
+      "importance": 0.23047186434268951
+    },
+    {
+      "feature": "down",
+      "importance": 0.11171210557222366
+    },
+    {
+      "feature": "ydstogo",
+      "importance": 0.00959484837949276
+    },
+    {
+      "feature": "home_field_advantage",
+      "importance": 0.006780375726521015
+    }
+  ]
+}
