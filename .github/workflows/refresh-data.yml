@@ -1,0 +1,41 @@
+name: Weekly NGS Data Refresh
+
+on:
+  schedule:
+    # Every Tuesday at 10:07 AM UTC (after Monday Night Football data is finalized)
+    - cron: '7 10 * * 2'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Refresh mode'
+        required: true
+        default: 'incremental'
+        type: choice
+        options:
+          - incremental
+          - full
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run data refresh
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'sqlite:///./data/ngs_stats.db' }}
+        run: |
+          MODE="${{ github.event.inputs.mode || 'incremental' }}"
+          python scripts/refresh_ngs_data.py --mode "$MODE"

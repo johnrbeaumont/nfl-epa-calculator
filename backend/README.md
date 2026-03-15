@@ -1,186 +1,147 @@
-# NFL EPA Calculator - Backend API
+# Backend — API Reference
 
-FastAPI backend that serves the trained XGBoost EPA model via REST API.
+FastAPI backend serving XGBoost ML models and NFL Next Gen Stats data.
 
-## Features
+**Local**: http://localhost:8000
+**Production**: https://nfl-epa-api.onrender.com
+**Interactive docs**: https://nfl-epa-api.onrender.com/docs
 
-- **POST /api/calculate** - Calculate EPA for game situations
-- **GET /api/health** - Health check and model status
-- **GET /docs** - Interactive API documentation (Swagger UI)
-- **GET /redoc** - Alternative API documentation (ReDoc)
+---
 
-## Quick Start
-
-### 1. Install Dependencies
+## Start locally
 
 ```bash
-# From project root
+# From nfl-epa-calculator/
 source venv/bin/activate
-pip install -r backend/requirements.txt
+cd backend && uvicorn app.main:app --reload
 ```
 
-### 2. Start the Server
+---
 
-```bash
-# From project root
-cd backend
-uvicorn app.main:app --reload
+## File structure
+
+```
+backend/
+├── app/
+│   ├── main.py           # FastAPI app, CORS, model loading, EPA + WP endpoints
+│   ├── ngs_endpoints.py  # All /api/ngs/* routes + Pydantic response models
+│   ├── ngs_scraper.py    # NGSDataImporter — downloads & upserts NGS data
+│   └── database.py       # SQLAlchemy ORM models (NGSPassing, NGSRushing, etc.)
+├── data/
+│   └── ngs_stats.db      # SQLite database (gitignored)
+├── requirements.txt
+├── render.yaml           # Render deployment config
+├── runtime.txt           # Python version pin
+├── test_api.py           # EPA/WP endpoint tests
+└── test_both_apis.py     # Full test suite
 ```
 
-Server will start at: **http://localhost:8000**
+---
 
-### 3. Test the API
+## Endpoints
 
-Open in browser:
-- **API Docs**: http://localhost:8000/docs
-- **Health Check**: http://localhost:8000/api/health
+### ML Models
 
-Or run the test script:
-```bash
-python test_api.py
-```
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/health` | Health check + model status |
+| `POST` | `/api/calculate` | EPA prediction |
+| `POST` | `/api/win-probability` | Win probability prediction |
 
-## API Endpoints
-
-### Calculate EPA
-
-**POST /api/calculate**
-
-Calculate Expected Points Added for a game situation.
-
-**Request Body:**
+**POST /api/calculate** request body:
 ```json
 {
-  "homeTeam": "KC",
-  "awayTeam": "SF",
-  "down": 3,
-  "distance": 5,
-  "yardsToGoal": 28,
-  "homeScore": 21,
-  "awayScore": 17,
-  "timeRemaining": 165,
-  "homeTimeouts": 2,
-  "awayTimeouts": 1,
+  "homeTeam": "KC", "awayTeam": "SF",
+  "down": 3, "distance": 7, "yardsToGoal": 35,
+  "homeScore": 14, "awayScore": 10,
+  "timeRemaining": 480,
+  "homeTimeouts": 2, "awayTimeouts": 3,
   "possession": "home"
 }
 ```
 
-**Response:**
-```json
-{
-  "epa": 1.23,
-  "metadata": {
-    "homeTeam": "KC",
-    "awayTeam": "SF",
-    "down": 3,
-    "distance": 5,
-    "fieldPosition": "Opponent 28-yard line",
-    "redZone": false,
-    "homeFieldAdvantage": true,
-    "scoreDifferential": 4,
-    "possession": "home"
-  }
-}
-```
-
-### Health Check
-
-**GET /api/health**
-
-Check API and model status.
-
-**Response:**
-```json
-{
-  "status": "healthy",
-  "model_loaded": true,
-  "model_info": {
-    "type": "XGBoost Regressor",
-    "features": ["down", "ydstogo", "yardline_100", "red_zone", "home_field_advantage"],
-    "training_samples": 285657,
-    "performance": {
-      "mae": 0.23,
-      "r2": 0.96,
-      "calibration_error": 0.006
-    }
-  },
-  "timestamp": "2025-02-01T10:00:00"
-}
-```
-
-## Testing with curl
-
-```bash
-# Health check
-curl http://localhost:8000/api/health
-
-# Calculate EPA
-curl -X POST http://localhost:8000/api/calculate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "homeTeam": "KC",
-    "awayTeam": "SF",
-    "down": 3,
-    "distance": 5,
-    "yardsToGoal": 28,
-    "homeScore": 21,
-    "awayScore": 17,
-    "timeRemaining": 165,
-    "homeTimeouts": 2,
-    "awayTimeouts": 1,
-    "possession": "home"
-  }'
-```
-
-## Input Validation
-
-The API validates all inputs:
-
-- **down**: 1-4
-- **distance**: 1-99 yards
-- **yardsToGoal**: 1-99 yards
-- **homeScore, awayScore**: 0-99 points
-- **timeRemaining**: 0-3600 seconds
-- **homeTimeouts, awayTimeouts**: 0-3
-- **homeTeam ≠ awayTeam**: Must be different
-
-Invalid inputs return 422 Unprocessable Entity with error details.
-
-## Model Information
-
-- **Algorithm**: XGBoost Regressor
-- **Features**: down, distance, field position, red zone, home field advantage
-- **Training Data**: 285,657 competitive plays (2016-2024)
-- **Performance**: MAE 0.23, R² 0.96, Calibration Error 0.006
-
-## Development
-
-### Run with auto-reload
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### Run tests
-```bash
-python test_api.py
-```
-
-### View logs
-The server logs all requests and model loading information to stdout.
-
-## Deployment
-
-See main project README for deployment instructions (Railway, Render, etc.).
-
-## CORS
-
-CORS is enabled for all origins (`*`) in development. For production, update the `allow_origins` in `main.py` to specific domains.
-
-## Next Steps
-
-- Phase 4: Build React frontend to consume this API
-- Phase 5: Deploy to production
+**POST /api/win-probability** — same body, plus `"quarter": 3`.
 
 ---
 
-**Status**: Phase 3 - Backend Development ✓
+### Next Gen Stats — `/api/ngs/*`
+
+| Method | Path | Key params |
+|---|---|---|
+| `GET` | `/api/ngs/passing` | `season`, `week`, `team`, `min_attempts`, `limit` |
+| `GET` | `/api/ngs/rushing` | `season`, `week`, `team`, `min_attempts`, `limit` |
+| `GET` | `/api/ngs/receiving` | `season`, `week`, `team`, `min_targets`, `limit` |
+| `GET` | `/api/ngs/defense` | `season`, `week`, `team`, `position`, `min_tackles`, `limit` |
+| `GET` | `/api/ngs/team-stats` | `season`, `week`, `team` |
+| `GET` | `/api/ngs/leaders/{stat_type}` | `season`, `metric`, `min_threshold`, `limit` |
+| `GET` | `/api/ngs/stats` | Database row counts + refresh log |
+| `POST` | `/api/ngs/refresh` | `mode=incremental\|full`, `season` |
+
+**Key param notes:**
+- `week=0` — season aggregate (most common)
+- `week=1–18` — regular season; `week=19–22` — playoffs
+- `limit` defaults to 100, max 500
+- Omit volume params (`min_attempts` etc.) to return all players with no filter
+
+**Example calls:**
+```bash
+# All QBs 2024 with 200+ attempts
+curl "http://localhost:8000/api/ngs/passing?season=2024&week=0&min_attempts=200"
+
+# Full CIN roster (no volume filter)
+curl "http://localhost:8000/api/ngs/passing?season=2024&week=0&team=CIN&limit=500"
+curl "http://localhost:8000/api/ngs/rushing?season=2024&week=0&team=CIN&limit=500"
+curl "http://localhost:8000/api/ngs/receiving?season=2024&week=0&team=CIN&limit=500"
+
+# Refresh NGS data
+curl -X POST "http://localhost:8000/api/ngs/refresh?mode=incremental"
+```
+
+---
+
+## Database schema
+
+Each NGS table (`ngs_passing`, `ngs_rushing`, `ngs_receiving`, `ngs_defense`) shares:
+
+| Column | Type | Notes |
+|---|---|---|
+| `player_gsis_id` | String | **Must be in Pydantic response model** — omitting breaks career aggregation in frontend |
+| `player_display_name` | String | |
+| `player_position` | String | QB / RB / WR / TE / DL / LB / DB |
+| `team_abbr` | String | |
+| `season` | Integer | |
+| `week` | Integer | 0 = season aggregate |
+
+Unique constraint on `(season, season_type, week, player_gsis_id)` — safe to re-run imports.
+
+---
+
+## CORS
+
+Allowed origins in `app/main.py`:
+- `http://localhost:3000`
+- `https://nfl-epa-calculator.vercel.app`
+- `https://*.vercel.app`
+
+---
+
+## Input validation (EPA/WP)
+
+| Field | Range |
+|---|---|
+| `down` | 1–4 |
+| `distance` | 1–99 |
+| `yardsToGoal` | 1–99 |
+| `homeScore`, `awayScore` | 0–99 |
+| `timeRemaining` | 0–3600 seconds |
+| `homeTimeouts`, `awayTimeouts` | 0–3 |
+
+Invalid inputs return `422 Unprocessable Entity`.
+
+---
+
+## Gotchas
+
+- `player_gsis_id` **must be included** in every Pydantic NGS response model or career stats in the frontend collapse all players into one entry.
+- Models load at startup from a path relative to `main.py` — backend won't start if `.joblib` files are missing from `/models`.
+- Render free tier spins down after 15 min inactivity — first cold request takes ~10s.

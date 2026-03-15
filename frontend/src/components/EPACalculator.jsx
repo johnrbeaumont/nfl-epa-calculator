@@ -12,7 +12,7 @@ const PRESETS = [
   { name: '4th & Short', down: 4, distance: 2, yardsToGoal: 50, quarter: 3, minutes: 8, seconds: 15 },
 ]
 
-export default function EPACalculator() {
+export default function EPACalculator({ onNavigate }) {
   const [formData, setFormData] = useState({
     homeTeam: 'KC',
     awayTeam: 'SF',
@@ -149,25 +149,100 @@ export default function EPACalculator() {
   }
 
   const getEPAColor = (epa) => {
-    if (epa >= 2) return 'text-green-600'
-    if (epa >= 1) return 'text-green-500'
-    if (epa >= 0) return 'text-blue-600'
-    if (epa >= -1) return 'text-orange-500'
-    return 'text-red-600'
+    if (epa >= 2) return '#0f0'
+    if (epa >= 1) return '#0f0'
+    if (epa >= 0) return '#4a9eff'
+    if (epa >= -1) return '#f80'
+    return '#f00'
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div style={{
+      minHeight: '100vh',
+      backgroundColor: '#0a0a0f',
+      color: '#e0e0e0',
+      fontFamily: "'Courier New', monospace",
+      padding: '2rem'
+    }}>
+      {/* Header */}
+      <div style={{
+        marginBottom: '2rem',
+        borderBottom: '1px solid #333',
+        paddingBottom: '1rem',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <div>
+          <h1 style={{
+            fontSize: '1.75rem',
+            fontWeight: 'bold',
+            color: '#4a9eff',
+            marginBottom: '0.25rem'
+          }}>
+            NFL EPA & WIN PROBABILITY CALCULATOR
+          </h1>
+          <div style={{ fontSize: '0.875rem', color: '#888' }}>
+            <span style={{ color: '#0f0' }}>● LIVE</span> | XGBOOST ML MODELS
+          </div>
+        </div>
+        {onNavigate && (
+          <button
+            onClick={onNavigate}
+            style={{
+              backgroundColor: 'transparent',
+              color: '#888',
+              border: '1px solid #333',
+              padding: '0.5rem 1rem',
+              cursor: 'pointer',
+              fontFamily: "'Courier New', monospace",
+              fontSize: '0.75rem'
+            }}
+          >
+            ⌂ HOME
+          </button>
+        )}
+      </div>
+
       {/* Scenario Presets */}
-      <div className="mb-8">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">Quick Scenarios</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div style={{ marginBottom: '2rem' }}>
+        <h2 style={{
+          fontSize: '0.875rem',
+          color: '#888',
+          marginBottom: '1rem',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em'
+        }}>
+          [ QUICK SCENARIOS ]
+        </h2>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '0.75rem'
+        }}>
           {PRESETS.map((preset) => (
             <button
               key={preset.name}
               onClick={() => loadPreset(preset)}
-              className="btn-preset"
               type="button"
+              style={{
+                backgroundColor: 'transparent',
+                color: '#4a9eff',
+                border: '1px solid #4a9eff',
+                padding: '0.75rem',
+                cursor: 'pointer',
+                fontFamily: "'Courier New', monospace",
+                fontSize: '0.75rem',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#4a9eff'
+                e.currentTarget.style.color = '#0a0a0f'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent'
+                e.currentTarget.style.color = '#4a9eff'
+              }}
             >
               {preset.name}
             </button>
@@ -175,60 +250,93 @@ export default function EPACalculator() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <form onSubmit={handleSubmit} className="p-6 md:p-8 space-y-8">
+      <div style={{
+        backgroundColor: '#1a1a1f',
+        border: '1px solid #333',
+        padding: '2rem'
+      }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
           {/* Team Selection */}
           <div>
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Teams</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <h2 style={{
+              fontSize: '0.875rem',
+              color: '#888',
+              marginBottom: '1rem',
+              textTransform: 'uppercase'
+            }}>
+              [ TEAMS ]
+            </h2>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+              gap: '1rem'
+            }}>
               {/* Away Team */}
               <div>
-                <label className="label">Away Team</label>
-                <div className="flex items-center gap-3">
-                  <img src={getTeamLogo(formData.awayTeam)} alt={formData.awayTeam} className="w-10 h-10 object-contain flex-shrink-0" />
-                  <select
-                    name="awayTeam"
-                    value={formData.awayTeam}
-                    onChange={handleChange}
-                    className={`flex-1 input ${validationErrors.awayTeam ? 'input-error' : ''}`}
-                  >
-                    {teams.map(team => (
-                      <option key={team.abbr} value={team.abbr}>{team.name}</option>
-                    ))}
-                  </select>
-                </div>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  AWAY TEAM:
+                </label>
+                <select
+                  name="awayTeam"
+                  value={formData.awayTeam}
+                  onChange={handleChange}
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: validationErrors.awayTeam ? '1px solid #f00' : '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem'
+                  }}
+                >
+                  {teams.map(team => (
+                    <option key={team.abbr} value={team.abbr}>{team.abbr} - {team.name}</option>
+                  ))}
+                </select>
                 {validationErrors.awayTeam && (
-                  <p className="error-message">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
-                    </svg>
-                    {validationErrors.awayTeam}
+                  <p style={{ color: '#f00', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                    ! {validationErrors.awayTeam}
                   </p>
                 )}
               </div>
 
               {/* Home Team */}
               <div>
-                <label className="label">Home Team</label>
-                <div className="flex items-center gap-3">
-                  <select
-                    name="homeTeam"
-                    value={formData.homeTeam}
-                    onChange={handleChange}
-                    className={`flex-1 input ${validationErrors.homeTeam ? 'input-error' : ''}`}
-                  >
-                    {teams.map(team => (
-                      <option key={team.abbr} value={team.abbr}>{team.name}</option>
-                    ))}
-                  </select>
-                  <img src={getTeamLogo(formData.homeTeam)} alt={formData.homeTeam} className="w-10 h-10 object-contain flex-shrink-0" />
-                </div>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  HOME TEAM:
+                </label>
+                <select
+                  name="homeTeam"
+                  value={formData.homeTeam}
+                  onChange={handleChange}
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: validationErrors.homeTeam ? '1px solid #f00' : '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem'
+                  }}
+                >
+                  {teams.map(team => (
+                    <option key={team.abbr} value={team.abbr}>{team.abbr} - {team.name}</option>
+                  ))}
+                </select>
                 {validationErrors.homeTeam && (
-                  <p className="error-message">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
-                    </svg>
-                    {validationErrors.homeTeam}
+                  <p style={{ color: '#f00', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                    ! {validationErrors.homeTeam}
                   </p>
                 )}
               </div>
@@ -237,10 +345,28 @@ export default function EPACalculator() {
 
           {/* Score */}
           <div>
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Score</h2>
-            <div className="grid grid-cols-2 gap-4">
+            <h2 style={{
+              fontSize: '0.875rem',
+              color: '#888',
+              marginBottom: '1rem',
+              textTransform: 'uppercase'
+            }}>
+              [ SCORE ]
+            </h2>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '1rem'
+            }}>
               <div>
-                <label className="label">Away Score</label>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  AWAY SCORE:
+                </label>
                 <input
                   type="number"
                   name="awayScore"
@@ -248,11 +374,28 @@ export default function EPACalculator() {
                   onChange={handleChange}
                   min="0"
                   max="99"
-                  className="input text-center text-2xl font-bold"
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '2rem',
+                    textAlign: 'center',
+                    fontWeight: 'bold'
+                  }}
                 />
               </div>
               <div>
-                <label className="label">Home Score</label>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  HOME SCORE:
+                </label>
                 <input
                   type="number"
                   name="homeScore"
@@ -260,7 +403,17 @@ export default function EPACalculator() {
                   onChange={handleChange}
                   min="0"
                   max="99"
-                  className="input text-center text-2xl font-bold"
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '2rem',
+                    textAlign: 'center',
+                    fontWeight: 'bold'
+                  }}
                 />
               </div>
             </div>
@@ -268,25 +421,58 @@ export default function EPACalculator() {
 
           {/* Game Situation */}
           <div>
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Situation</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <h2 style={{
+              fontSize: '0.875rem',
+              color: '#888',
+              marginBottom: '1rem',
+              textTransform: 'uppercase'
+            }}>
+              [ SITUATION ]
+            </h2>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: '1rem'
+            }}>
               <div>
-                <label className="label">Down</label>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  DOWN:
+                </label>
                 <select
                   name="down"
                   value={formData.down}
                   onChange={handleChange}
-                  className="input"
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem'
+                  }}
                 >
-                  <option value={1}>1st</option>
-                  <option value={2}>2nd</option>
-                  <option value={3}>3rd</option>
-                  <option value={4}>4th</option>
+                  <option value={1}>1ST</option>
+                  <option value={2}>2ND</option>
+                  <option value={3}>3RD</option>
+                  <option value={4}>4TH</option>
                 </select>
               </div>
 
               <div>
-                <label className="label">Distance</label>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  DISTANCE:
+                </label>
                 <input
                   type="number"
                   name="distance"
@@ -294,20 +480,32 @@ export default function EPACalculator() {
                   onChange={handleChange}
                   min="1"
                   max="99"
-                  className={`input ${validationErrors.distance ? 'input-error' : ''}`}
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: validationErrors.distance ? '1px solid #f00' : '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem'
+                  }}
                 />
                 {validationErrors.distance && (
-                  <p className="error-message">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
-                    </svg>
-                    {validationErrors.distance}
+                  <p style={{ color: '#f00', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                    ! {validationErrors.distance}
                   </p>
                 )}
               </div>
 
               <div>
-                <label className="label">Yards to Goal</label>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  YARDS TO GOAL:
+                </label>
                 <input
                   type="number"
                   name="yardsToGoal"
@@ -315,28 +513,63 @@ export default function EPACalculator() {
                   onChange={handleChange}
                   min="1"
                   max="99"
-                  className="input"
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem'
+                  }}
                 />
               </div>
             </div>
 
             {/* Possession */}
-            <div className="mt-4">
-              <label className="label">Possession</label>
-              <div className="flex gap-2">
+            <div style={{ marginTop: '1rem' }}>
+              <label style={{
+                display: 'block',
+                color: '#888',
+                fontSize: '0.75rem',
+                marginBottom: '0.5rem'
+              }}>
+                POSSESSION:
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
                   type="button"
                   onClick={() => handleChange({ target: { name: 'possession', value: 'away' }})}
-                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 ${formData.possession === 'away' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  style={{
+                    flex: 1,
+                    backgroundColor: formData.possession === 'away' ? '#4a9eff' : 'transparent',
+                    color: formData.possession === 'away' ? '#0a0a0f' : '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    cursor: 'pointer',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem',
+                    fontWeight: 'bold'
+                  }}
                 >
-                  Away has ball
+                  AWAY HAS BALL
                 </button>
                 <button
                   type="button"
                   onClick={() => handleChange({ target: { name: 'possession', value: 'home' }})}
-                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 ${formData.possession === 'home' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  style={{
+                    flex: 1,
+                    backgroundColor: formData.possession === 'home' ? '#4a9eff' : 'transparent',
+                    color: formData.possession === 'home' ? '#0a0a0f' : '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    cursor: 'pointer',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem',
+                    fontWeight: 'bold'
+                  }}
                 >
-                  Home has ball
+                  HOME HAS BALL
                 </button>
               </div>
             </div>
@@ -344,15 +577,41 @@ export default function EPACalculator() {
 
           {/* Game Clock */}
           <div>
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Game Clock</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <h2 style={{
+              fontSize: '0.875rem',
+              color: '#888',
+              marginBottom: '1rem',
+              textTransform: 'uppercase'
+            }}>
+              [ GAME CLOCK ]
+            </h2>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+              gap: '1rem'
+            }}>
               <div>
-                <label className="label">Quarter</label>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  QUARTER:
+                </label>
                 <select
                   name="quarter"
                   value={formData.quarter}
                   onChange={handleChange}
-                  className="input"
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem'
+                  }}
                 >
                   <option value={1}>Q1</option>
                   <option value={2}>Q2</option>
@@ -362,7 +621,14 @@ export default function EPACalculator() {
               </div>
 
               <div>
-                <label className="label">Minutes</label>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  MINUTES:
+                </label>
                 <input
                   type="number"
                   name="minutes"
@@ -370,12 +636,27 @@ export default function EPACalculator() {
                   onChange={handleChange}
                   min="0"
                   max="15"
-                  className="input"
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem'
+                  }}
                 />
               </div>
 
               <div>
-                <label className="label">Seconds</label>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  SECONDS:
+                </label>
                 <input
                   type="number"
                   name="seconds"
@@ -383,27 +664,71 @@ export default function EPACalculator() {
                   onChange={handleChange}
                   min="0"
                   max="59"
-                  className="input"
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem'
+                  }}
                 />
               </div>
 
               <div>
-                <label className="label">Clock</label>
-                <div className="px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg text-sm font-mono text-center">
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  CLOCK:
+                </label>
+                <div style={{
+                  backgroundColor: '#0a0a0f',
+                  color: '#0f0',
+                  border: '1px solid #333',
+                  padding: '0.5rem',
+                  fontFamily: "'Courier New', monospace",
+                  fontSize: '0.875rem',
+                  textAlign: 'center',
+                  fontWeight: 'bold'
+                }}>
                   {formData.minutes}:{formData.seconds.toString().padStart(2, '0')}
                 </div>
               </div>
             </div>
 
             {/* Timeouts */}
-            <div className="grid grid-cols-2 gap-4 mt-4">
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '1rem',
+              marginTop: '1rem'
+            }}>
               <div>
-                <label className="label">Away Timeouts</label>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  AWAY TIMEOUTS:
+                </label>
                 <select
                   name="awayTimeouts"
                   value={formData.awayTimeouts}
                   onChange={handleChange}
-                  className="input"
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem'
+                  }}
                 >
                   <option value={0}>0</option>
                   <option value={1}>1</option>
@@ -413,12 +738,27 @@ export default function EPACalculator() {
               </div>
 
               <div>
-                <label className="label">Home Timeouts</label>
+                <label style={{
+                  display: 'block',
+                  color: '#888',
+                  fontSize: '0.75rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  HOME TIMEOUTS:
+                </label>
                 <select
                   name="homeTimeouts"
                   value={formData.homeTimeouts}
                   onChange={handleChange}
-                  className="input"
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    color: '#4a9eff',
+                    border: '1px solid #4a9eff',
+                    padding: '0.5rem',
+                    width: '100%',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '0.875rem'
+                  }}
                 >
                   <option value={0}>0</option>
                   <option value={1}>1</option>
@@ -433,124 +773,241 @@ export default function EPACalculator() {
           <button
             type="submit"
             disabled={loading || Object.keys(validationErrors).length > 0}
-            className="w-full btn btn-primary disabled:bg-gray-400 disabled:cursor-not-allowed disabled:hover:bg-gray-400 disabled:hover:shadow-md flex items-center justify-center gap-2"
+            style={{
+              backgroundColor: (loading || Object.keys(validationErrors).length > 0) ? '#333' : '#4a9eff',
+              color: (loading || Object.keys(validationErrors).length > 0) ? '#666' : '#0a0a0f',
+              border: '1px solid #4a9eff',
+              padding: '1rem',
+              cursor: (loading || Object.keys(validationErrors).length > 0) ? 'not-allowed' : 'pointer',
+              fontFamily: "'Courier New', monospace",
+              fontSize: '1rem',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em'
+            }}
           >
-            {loading && <span className="spinner"></span>}
-            {loading ? 'Calculating...' : 'Calculate Predictions'}
+            {loading ? '[ CALCULATING... ]' : '[ CALCULATE PREDICTIONS ]'}
           </button>
 
           {/* Error Display */}
           {error && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-800 font-medium">{error}</p>
+            <div style={{
+              padding: '1rem',
+              backgroundColor: '#2a0a0a',
+              border: '1px solid #f00',
+              color: '#f00',
+              fontSize: '0.875rem'
+            }}>
+              ! ERROR: {error}
             </div>
           )}
         </form>
       </div>
 
-      {/* Results Display with smooth fade-in */}
+      {/* Results Display */}
       {(epaResult || winProbResult) && (
-        <div className="mt-8 animate-fadeIn">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div style={{ marginTop: '2rem' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+            gap: '2rem'
+          }}>
             {/* Win Probability Card */}
             {winProbResult && (
-              <div className="bg-white rounded-xl p-6 md:p-8 border border-gray-200 shadow-sm">
-                <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-6">
-                  Win Probability
+              <div style={{
+                backgroundColor: '#1a1a1f',
+                border: '2px solid #4a9eff',
+                padding: '2rem'
+              }}>
+                <h3 style={{
+                  fontSize: '0.875rem',
+                  color: '#4a9eff',
+                  marginBottom: '2rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  borderBottom: '1px solid #333',
+                  paddingBottom: '0.5rem'
+                }}>
+                  [ WIN PROBABILITY ]
                 </h3>
 
                 {/* Team percentages */}
-                <div className="flex justify-between items-center mb-6">
-                  <div className="text-center">
-                    <div className="text-3xl font-bold text-gray-900">
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  marginBottom: '2rem'
+                }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{
+                      fontSize: '3rem',
+                      fontWeight: 'bold',
+                      color: '#4a9eff'
+                    }}>
                       {(winProbResult.awayWinProbability * 100).toFixed(1)}%
                     </div>
-                    <div className="text-xs font-medium text-gray-600 mt-1">
+                    <div style={{
+                      fontSize: '0.75rem',
+                      color: '#888',
+                      marginTop: '0.5rem'
+                    }}>
                       {winProbResult.metadata.awayTeam}
                     </div>
                   </div>
-                  <div className="text-center">
-                    <div className="text-3xl font-bold text-gray-900">
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{
+                      fontSize: '3rem',
+                      fontWeight: 'bold',
+                      color: '#4a9eff'
+                    }}>
                       {(winProbResult.homeWinProbability * 100).toFixed(1)}%
                     </div>
-                    <div className="text-xs font-medium text-gray-600 mt-1">
+                    <div style={{
+                      fontSize: '0.75rem',
+                      color: '#888',
+                      marginTop: '0.5rem'
+                    }}>
                       {winProbResult.metadata.homeTeam}
                     </div>
                   </div>
                 </div>
 
-                {/* Horizontal bar - colorblind friendly blue to green */}
-                <div className="relative mb-4">
-                  <div className="h-6 rounded-full overflow-hidden bg-gradient-to-r from-blue-500 via-teal-400 to-green-500 shadow-inner"></div>
-
-                  {/* Marker */}
-                  <div
-                    className="absolute top-0 bottom-0 w-1 bg-white shadow-md transition-all duration-500"
-                    style={{ left: `${winProbResult.homeWinProbability * 100}%` }}
-                  >
-                    <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-3 h-8 bg-white rounded-full shadow-lg border-2 border-gray-300"></div>
+                {/* Progress bar */}
+                <div style={{ marginBottom: '1rem' }}>
+                  <div style={{
+                    height: '30px',
+                    backgroundColor: '#0a0a0f',
+                    border: '1px solid #333',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${winProbResult.homeWinProbability * 100}%`,
+                      backgroundColor: '#4a9eff',
+                      transition: 'width 0.5s'
+                    }} />
+                    <div style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      color: '#e0e0e0',
+                      fontSize: '0.75rem',
+                      fontWeight: 'bold'
+                    }}>
+                      50%
+                    </div>
                   </div>
-
-                  {/* Center marker */}
-                  <div className="absolute top-0 bottom-0 left-1/2 w-px bg-white opacity-40"></div>
-                </div>
-
-                {/* Scale labels */}
-                <div className="flex justify-between text-xs text-gray-500 mb-6">
-                  <span>0%</span>
-                  <span>50%</span>
-                  <span>100%</span>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.625rem',
+                    color: '#666',
+                    marginTop: '0.25rem'
+                  }}>
+                    <span>0%</span>
+                    <span>100%</span>
+                  </div>
                 </div>
 
                 {/* Game summary */}
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <p className="text-sm text-gray-800 font-medium">
-                    <span className="font-bold">{winProbResult.metadata.homeTeam}</span> {winProbResult.metadata.homeScore} - {winProbResult.metadata.awayScore} <span className="font-bold">{winProbResult.metadata.awayTeam}</span>
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">
+                <div style={{
+                  backgroundColor: '#0a0a0f',
+                  border: '1px solid #333',
+                  padding: '1rem',
+                  textAlign: 'center'
+                }}>
+                  <div style={{
+                    fontSize: '0.875rem',
+                    color: '#e0e0e0',
+                    marginBottom: '0.5rem'
+                  }}>
+                    <span style={{ fontWeight: 'bold', color: '#4a9eff' }}>{winProbResult.metadata.homeTeam}</span>{' '}
+                    {winProbResult.metadata.homeScore} - {winProbResult.metadata.awayScore}{' '}
+                    <span style={{ fontWeight: 'bold', color: '#4a9eff' }}>{winProbResult.metadata.awayTeam}</span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#888' }}>
                     Q{winProbResult.metadata.quarter} • {formData.minutes}:{formData.seconds.toString().padStart(2, '0')}
-                  </p>
+                  </div>
                 </div>
               </div>
             )}
 
             {/* EPA Card */}
             {epaResult && (
-              <div className="bg-white rounded-xl p-6 md:p-8 border border-gray-200 shadow-sm">
-                <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-6">
-                  Expected Points Added
+              <div style={{
+                backgroundColor: '#1a1a1f',
+                border: '2px solid #4a9eff',
+                padding: '2rem'
+              }}>
+                <h3 style={{
+                  fontSize: '0.875rem',
+                  color: '#4a9eff',
+                  marginBottom: '2rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  borderBottom: '1px solid #333',
+                  paddingBottom: '0.5rem'
+                }}>
+                  [ EXPECTED POINTS ADDED ]
                 </h3>
 
-                <div className="text-center py-8">
-                  <div className={`text-6xl font-bold ${getEPAColor(epaResult.epa)} mb-3`}>
+                <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+                  <div style={{
+                    fontSize: '6rem',
+                    fontWeight: 'bold',
+                    color: getEPAColor(epaResult.epa),
+                    lineHeight: 1
+                  }}>
                     {epaResult.epa > 0 ? '+' : ''}{epaResult.epa}
                   </div>
-                  <p className="text-sm text-gray-600 font-medium">
+                  <div style={{
+                    fontSize: '0.875rem',
+                    color: '#888',
+                    marginTop: '1rem'
+                  }}>
                     {epaResult.metadata.fieldPosition}
-                  </p>
+                  </div>
                 </div>
 
-                {/* Compact metadata */}
-                <div className="bg-gray-50 rounded-lg p-4 space-y-2.5">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-600">Down & Distance</span>
-                    <span className="font-semibold text-gray-900">
+                {/* Metadata */}
+                <div style={{
+                  backgroundColor: '#0a0a0f',
+                  border: '1px solid #333',
+                  padding: '1rem'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    marginBottom: '0.75rem',
+                    fontSize: '0.75rem'
+                  }}>
+                    <span style={{ color: '#888' }}>DOWN & DISTANCE:</span>
+                    <span style={{ color: '#e0e0e0', fontWeight: 'bold' }}>
                       {epaResult.metadata.down} & {epaResult.metadata.distance}
                     </span>
                   </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-600">Red Zone</span>
-                    <span className="font-semibold text-gray-900">
-                      {epaResult.metadata.redZone ? (
-                        <span className="text-green-600">Yes</span>
-                      ) : (
-                        <span className="text-gray-600">No</span>
-                      )}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    marginBottom: '0.75rem',
+                    fontSize: '0.75rem'
+                  }}>
+                    <span style={{ color: '#888' }}>RED ZONE:</span>
+                    <span style={{
+                      color: epaResult.metadata.redZone ? '#0f0' : '#666',
+                      fontWeight: 'bold'
+                    }}>
+                      {epaResult.metadata.redZone ? 'YES' : 'NO'}
                     </span>
                   </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-600">Possession</span>
-                    <span className="font-semibold text-gray-900">
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.75rem'
+                  }}>
+                    <span style={{ color: '#888' }}>POSSESSION:</span>
+                    <span style={{ color: '#e0e0e0', fontWeight: 'bold' }}>
                       {epaResult.metadata.possession === 'home' ? epaResult.metadata.homeTeam : epaResult.metadata.awayTeam}
                     </span>
                   </div>
@@ -560,6 +1017,18 @@ export default function EPACalculator() {
           </div>
         </div>
       )}
+
+      {/* Footer */}
+      <div style={{
+        marginTop: '2rem',
+        paddingTop: '1rem',
+        borderTop: '1px solid #333',
+        color: '#888',
+        fontSize: '0.75rem',
+        textAlign: 'center'
+      }}>
+        XGBOOST ML MODELS | TRAINED ON 285K+ PLAYS (2016-2024)
+      </div>
     </div>
   )
 }

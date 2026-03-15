@@ -1,157 +1,124 @@
-# NFL EPA & Win Probability Calculator
+# NFL Analytics Terminal — Claude Context
 
-## 📋 Project Overview
-Full-stack application for calculating Expected Points Added (EPA) and Win Probability for NFL game situations using XGBoost machine learning models.
+## What this project is
 
-## 🌐 Live Deployments
-- **Frontend**: https://nfl-epa-calculator.vercel.app/
-- **Backend API**: https://nfl-epa-api.onrender.com/
-- **API Docs**: https://nfl-epa-api.onrender.com/docs
-- **GitHub**: https://github.com/johnrbeaumont/nfl-epa-calculator
+A deployed full-stack NFL analytics web app with two modules:
+1. **EPA Calculator** — XGBoost model predicts Expected Points Added + Win Probability for any game situation
+2. **NGS Terminal** — Next Gen Stats explorer: player leaderboards, career stats, team rosters (2016-2024)
 
-## 🏗️ Architecture
+## Live URLs
+- Frontend: https://nfl-epa-calculator.vercel.app/
+- Backend API: https://nfl-epa-api.onrender.com/
+- API Docs: https://nfl-epa-api.onrender.com/docs
+- GitHub: https://github.com/johnrbeaumont/nfl-epa-calculator
 
-### Frontend (`/frontend`)
-- **Tech**: React + Vite + Tailwind CSS
-- **Dev**: `npm run dev` (runs on http://localhost:3000)
-- **Build**: `npm run build`
-- **Deployed**: Vercel (auto-deploys on push to main)
+## Local dev commands
 
-### Backend (`/backend`)
-- **Tech**: FastAPI + XGBoost + scikit-learn
-- **Dev**: `uvicorn app.main:app --reload` (runs on http://localhost:8000)
-- **Deployed**: Render (auto-deploys on push to main)
-
-### Models (`/models`)
-- `epa_model_xgboost.joblib` - EPA prediction model (892KB)
-- `win_probability_model_xgboost.joblib` - Win probability classifier (804KB)
-- Training data: 2016-2024 NFL seasons (285K+ plays)
-
-### Data (`/data`)
-- Large parquet files (gitignored)
-- Source: nflfastR play-by-play data
-
-### Notebooks (`/notebooks`)
-1. `01_data_exploration.ipynb` - Initial EDA
-2. `02_build_epa_model.ipynb` - EPA model training
-3. `03_build_win_probability_model.ipynb` - Win probability model training
-
-## 🚀 Quick Commands
-
-### Development
 ```bash
-# Start backend
-cd backend && uvicorn app.main:app --reload
+# Backend (run from nfl-epa-calculator/)
+source venv/bin/activate
+cd backend && uvicorn app.main:app --reload      # http://localhost:8000
 
-# Start frontend
-cd frontend && npm run dev
+# Frontend (run from nfl-epa-calculator/)
+cd frontend && npm run dev -- --port 3000        # http://localhost:3000
 
-# Test backend
-python backend/test_both_apis.py
+# Test APIs
+python test_both_apis.py
 ```
 
-### Deployment
-```bash
-# Push to GitHub (triggers auto-deploy)
-git add .
-git commit -m "Your message"
-git push
+## Architecture
 
-# Render and Vercel will auto-deploy
+```
+nfl-epa-calculator/
+├── backend/               # FastAPI + XGBoost + SQLite (NGS data)
+│   └── app/
+│       ├── main.py        # API entry point, CORS, model loading
+│       ├── ngs_endpoints.py  # /api/ngs/* routes (passing/rushing/receiving/defense)
+│       ├── ngs_scraper.py    # Data importer from nfl_data_py
+│       └── database.py    # SQLAlchemy models: NGSPassing, NGSRushing, NGSReceiving, NGSDefense
+├── frontend/
+│   └── src/
+│       ├── App.jsx        # Router: home / calculator / stats (3-way state)
+│       └── components/
+│           ├── HomePage.jsx       # Landing screen — selects module
+│           ├── EPACalculator.jsx  # EPA + Win Probability calculator
+│           ├── NGSTerminal.jsx    # Full stats explorer (~1480 lines)
+│           └── NGSStatsExplorer.jsx  # UNUSED — legacy component
+├── models/                # Trained .joblib model files (served by backend)
+├── notebooks/             # Jupyter: EDA, EPA training, WP training
+└── data/                  # nflfastR parquet files (gitignored, large)
 ```
 
-### Model Training
-```bash
-# Re-train models (if updating with new data)
-jupyter notebook notebooks/02_build_epa_model.ipynb
-jupyter notebook notebooks/03_build_win_probability_model.ipynb
-```
+## Design system (dark terminal style)
 
-## 📊 Model Performance
+All three active components share this aesthetic — use inline styles, not Tailwind:
 
-### EPA Model
-- MAE: 0.228
-- RMSE: 0.339
-- R²: 0.962
-- Training samples: 285,657
+| Token | Value |
+|---|---|
+| Background | `#0a0a0f` |
+| Surface | `#1a1a1f` |
+| Surface hover | `#252530` |
+| Border default | `#333` |
+| Border active | `#4a9eff` |
+| Text primary | `#e0e0e0` |
+| Text muted | `#888` |
+| Accent blue | `#4a9eff` |
+| Positive (green) | `#0f0` |
+| Negative (red) | `#f00` |
+| Warning | `#f80` |
+| Font | `'Courier New', monospace` |
 
-### Win Probability Model
-- Brier Score: 0.180
-- AUC-ROC: 0.801
-- Accuracy: 71.7%
-- Training samples: 203,877
+## API endpoints (key)
 
-## 🎨 Design System
-See `DESIGN_SYSTEM.md` for comprehensive design token documentation.
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/calculate` | EPA prediction |
+| POST | `/api/win-probability` | Win probability prediction |
+| GET | `/api/health` | Health check |
+| GET | `/api/ngs/passing` | QB stats (params: season, week, team, min_attempts) |
+| GET | `/api/ngs/rushing` | RB stats (params: season, week, team, min_attempts) |
+| GET | `/api/ngs/receiving` | WR/TE stats (params: season, week, team, min_targets) |
+| GET | `/api/ngs/defense` | Defense stats (params: season, week, team, position) |
+| GET | `/api/ngs/team-stats` | Aggregated team stats |
+| POST | `/api/ngs/refresh` | Trigger data refresh (incremental or full) |
 
-Key features:
-- Colorblind-friendly palette (blue-teal-green gradient)
-- Mobile-responsive (md: 768px, lg: 1024px breakpoints)
-- Component library in `frontend/src/index.css`
-- 8px spacing system
+All NGS endpoints accept `limit` (default 100, max 500) and `week` (0 = season aggregate).
 
-## 📝 Environment Variables
+## Model performance
 
-### Frontend
-- `VITE_API_URL` - Backend API URL (set in Vercel)
-  - Production: `https://nfl-epa-api.onrender.com`
-  - Development: `http://localhost:8000`
+| Model | Key metric | Value |
+|---|---|---|
+| EPA (XGBoost) | R² | 0.962 |
+| EPA | MAE | 0.228 |
+| EPA | Training plays | 285,657 |
+| Win Probability | AUC-ROC | 0.801 |
+| Win Probability | Accuracy | 71.7% |
+| Win Probability | Brier Score | 0.180 |
 
-### Backend
-- `PORT` - Server port (auto-set by Render)
+## Environment variables
 
-## 🔧 Common Tasks
+| Variable | Where | Value |
+|---|---|---|
+| `VITE_API_URL` | Vercel (frontend) | `https://nfl-epa-api.onrender.com` |
+| `PORT` | Render (backend) | Auto-set by Render |
 
-### Update CORS (if adding new domains)
-Edit `backend/app/main.py` → `allow_origins` list
+## Common tasks
 
-### Add new NFL teams
-Update `frontend/src/data/teams.json`
+**Update CORS** → `backend/app/main.py` → `allow_origins` list
 
-### Update models with new season data
-1. Download latest nflfastR data
-2. Re-run training notebooks
-3. Replace model files in `/models`
-4. Commit and push (will auto-deploy)
+**Re-train models** → run notebooks 02 and 03, replace `.joblib` files in `/models`, push to git
 
-## 🐛 Troubleshooting
+**Update NGS data** → `POST /api/ngs/refresh?mode=incremental` or `mode=full`
 
-### Backend won't start
-- Check models exist in `/models` directory
-- Verify `requirements.txt` installed: `pip install -r backend/requirements.txt`
-- Models must be in correct path relative to `backend/app/main.py`
+**Add a team** → `frontend/src/data/teams.json`
 
-### Frontend API calls fail
-- Check CORS settings in `backend/app/main.py`
-- Verify `VITE_API_URL` environment variable set
-- Check backend is running and accessible
+## Deployment
 
-### Render deployment fails
-- Check Render logs for Python/dependency errors
-- Verify `runtime.txt` has correct Python version
-- Ensure `requirements.txt` has all dependencies
+Push to `main` on GitHub → Render (backend) and Vercel (frontend) auto-deploy.
 
-## 📚 Documentation
-- Full deployment guide: `DEPLOYMENT.md`
-- Design system: `DESIGN_SYSTEM.md`
-- Original requirements: `REQUIREMENTS.md`
+## Known issues / gotchas
 
-## 🔄 Git Workflow
-- Main branch deploys automatically to production
-- Use descriptive commit messages
-- Large data files are gitignored
-
-## ✅ Project Status
-**Phase 5: Deployment** - ✅ COMPLETE
-- [x] Backend deployed to Render
-- [x] Frontend deployed to Vercel
-- [x] CORS configured
-- [x] Both APIs operational
-- [x] Design system implemented
-- [x] Mobile responsive
-
-**Next Steps (Optional):**
-- Custom domain setup
-- Analytics integration
-- Performance monitoring
-- Additional features (dark mode, scenario comparison, etc.)
+- `NGSStatsExplorer.jsx` is an older, unused component — do not modify or rely on it
+- NGS Pydantic response models must include `player_gsis_id` or career aggregation breaks (groups all players under `undefined` key)
+- Render free tier spins down after 15 min inactivity — first request after idle takes ~10s
+- Backend loads models at startup from path relative to `main.py` — models must exist in `/models` before starting

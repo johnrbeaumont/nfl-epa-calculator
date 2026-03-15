@@ -14,6 +14,11 @@ import json
 from pathlib import Path
 from datetime import datetime
 
+# NGS Database imports
+from .database import init_db, SessionLocal, NGSPassing, SeasonalStats
+from .ngs_endpoints import router as ngs_router
+from .ngs_scraper import NGSDataImporter
+
 # Initialize FastAPI app
 app = FastAPI(
     title="NFL EPA & Win Probability API",
@@ -35,6 +40,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register NGS Stats router
+app.include_router(ngs_router)
 
 # Global variables for models and metadata
 epa_model = None
@@ -186,6 +194,7 @@ class HealthResponse(BaseModel):
     win_prob_model_loaded: bool
     epa_model_info: Optional[dict]
     win_prob_model_info: Optional[dict]
+    ngs_stats: Optional[dict]
     timestamp: str
 
 
@@ -228,6 +237,11 @@ async def load_models():
         print(f"  Training samples: {win_prob_metadata['training_samples']:,}")
         print(f"  Performance: Brier={win_prob_metadata['performance']['brier_score']:.4f}, AUC={win_prob_metadata['performance']['auc_roc']:.4f}")
 
+        # Initialize NGS database
+        print("\nInitializing NGS database...")
+        init_db()
+        print("✓ NGS database initialized")
+
     except Exception as e:
         print(f"✗ Error loading models: {e}")
         raise
@@ -248,6 +262,27 @@ async def root():
 @app.get("/api/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
     """Health check endpoint - verify API and both model statuses"""
+    # Check NGS database status
+    ngs_health = {
+        "database_connected": False,
+        "row_counts": {}
+    }
+
+    try:
+        db = SessionLocal()
+        importer = NGSDataImporter(db)
+        stats = importer.get_database_stats()
+        ngs_health["database_connected"] = True
+        ngs_health["row_counts"] = {
+            "passing": stats["passing"]["total_rows"],
+            "receiving": stats["receiving"]["total_rows"],
+            "rushing": stats["rushing"]["total_rows"]
+        }
+        ngs_health["last_refresh"] = stats["refresh_log"]["last_refresh"]
+        db.close()
+    except Exception as e:
+        ngs_health["error"] = str(e)
+
     return {
         "status": "healthy" if (epa_model is not None and win_prob_model is not None) else "unhealthy",
         "epa_model_loaded": epa_model is not None,
@@ -264,6 +299,7 @@ async def health_check():
             "training_samples": win_prob_metadata.get("training_samples"),
             "performance": win_prob_metadata.get("performance")
         } if win_prob_metadata else None,
+        "ngs_stats": ngs_health,
         "timestamp": datetime.utcnow().isoformat()
     }
 

@@ -13,84 +13,232 @@ const POSITION_STAT_MAP = {
   DB: null   // NGS does not track defensive players
 }
 
-// Metric configurations by position
-const PLAYER_METRICS = {
-  QB: [
-    { key: 'completion_percentage', label: 'Comp%', format: (v) => v?.toFixed(1) || '-' },
-    { key: 'attempts', label: 'Pass Att', format: (v) => v || '-' },
-    { key: 'pass_yards', label: 'Pass Yds', format: (v) => v || '-' },
-    { key: 'pass_touchdowns', label: 'Pass TD', format: (v) => v || '-' },
-    { key: 'interceptions', label: 'INT', format: (v) => v || '-' },
-    { key: 'passer_rating', label: 'Rating', format: (v) => v?.toFixed(1) || '-' },
-    { key: 'completion_percentage_above_expectation', label: 'CPOE', format: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}` : '-', isEPA: true },
-    { key: 'avg_time_to_throw', label: 'Time to Throw', format: (v) => v?.toFixed(2) || '-' },
-    { key: 'aggressiveness', label: 'Aggressiveness', format: (v) => v?.toFixed(1) || '-' }
-  ],
-  RB: [
-    { key: 'rush_attempts', label: 'Rush Att', format: (v) => v || '-' },
-    { key: 'rush_yards', label: 'Rush Yds', format: (v) => v || '-' },
-    { key: 'rush_touchdowns', label: 'Rush TD', format: (v) => v || '-' },
-    { key: 'avg_rush_yards', label: 'YPC', format: (v) => v?.toFixed(1) || '-' },
-    { key: 'efficiency', label: 'Efficiency', format: (v) => v?.toFixed(2) || '-' },
-    { key: 'rush_yards_over_expected', label: 'RYOE', format: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(0)}` : '-', isEPA: true },
-    { key: 'rush_yards_over_expected_per_att', label: 'YOE/Att', format: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}` : '-', isEPA: true },
-    { key: 'percent_attempts_gte_eight_defenders', label: 'Stacked Box%', format: (v) => v?.toFixed(1) || '-' }
-  ],
-  WR: [
-    { key: 'targets', label: 'Targets', format: (v) => v || '-' },
-    { key: 'receptions', label: 'Receptions', format: (v) => v || '-' },
-    { key: 'yards', label: 'Rec Yds', format: (v) => v || '-' },
-    { key: 'rec_touchdowns', label: 'Rec TD', format: (v) => v || '-' },
-    { key: 'catch_percentage', label: 'Catch%', format: (v) => v?.toFixed(1) || '-' },
-    { key: 'avg_cushion', label: 'Avg Cushion', format: (v) => v?.toFixed(1) || '-' },
-    { key: 'avg_separation', label: 'Avg Sep', format: (v) => v?.toFixed(1) || '-' },
-    { key: 'avg_yac_above_expectation', label: 'YAC+', format: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}` : '-', isEPA: true }
-  ],
-  TE: [
-    { key: 'targets', label: 'Targets', format: (v) => v || '-' },
-    { key: 'receptions', label: 'Receptions', format: (v) => v || '-' },
-    { key: 'yards', label: 'Rec Yds', format: (v) => v || '-' },
-    { key: 'rec_touchdowns', label: 'Rec TD', format: (v) => v || '-' },
-    { key: 'catch_percentage', label: 'Catch%', format: (v) => v?.toFixed(1) || '-' },
-    { key: 'avg_cushion', label: 'Avg Cushion', format: (v) => v?.toFixed(1) || '-' },
-    { key: 'avg_separation', label: 'Avg Sep', format: (v) => v?.toFixed(1) || '-' },
-    { key: 'avg_yac_above_expectation', label: 'YAC+', format: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}` : '-', isEPA: true }
-  ]
+// Format helpers
+const fmt = {
+  int: (v) => v != null ? v : '-',
+  f1: (v) => v != null ? v.toFixed(1) : '-',
+  f2: (v) => v != null ? v.toFixed(2) : '-',
+  sign1: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}` : '-',
+  sign2: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}` : '-',
+  signInt: (v) => v != null ? `${v >= 0 ? '+' : ''}${Math.round(v)}` : '-',
+  pct1: (v) => v != null ? (v * 100).toFixed(1) : '-',
 }
 
-// Unified metrics showing all position stats
-const UNIFIED_METRICS = [
-  // QB Passing
-  { key: 'completion_percentage', label: 'Comp%', format: (v) => v?.toFixed(1) || '-', positions: ['QB'] },
-  { key: 'attempts', label: 'Pass Att', format: (v) => v || '-', positions: ['QB'] },
-  { key: 'pass_yards', label: 'Pass Yds', format: (v) => v || '-', positions: ['QB'] },
-  { key: 'pass_touchdowns', label: 'Pass TD', format: (v) => v || '-', positions: ['QB'] },
-  { key: 'interceptions', label: 'INT', format: (v) => v || '-', positions: ['QB'] },
-  { key: 'passer_rating', label: 'Rating', format: (v) => v?.toFixed(1) || '-', positions: ['QB'] },
-  { key: 'completion_percentage_above_expectation', label: 'CPOE', format: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}` : '-', isEPA: true, positions: ['QB'] },
-  { key: 'avg_time_to_throw', label: 'TTT', format: (v) => v?.toFixed(2) || '-', positions: ['QB'] },
-  { key: 'aggressiveness', label: 'Aggr%', format: (v) => v?.toFixed(1) || '-', positions: ['QB'] },
+// Metric sections by position — each section is collapsible
+const METRIC_SECTIONS = {
+  QB: [
+    {
+      id: 'core', label: 'CORE', defaultOpen: true,
+      metrics: [
+        { key: 'games', label: 'G', format: fmt.int },
+        { key: 'attempts', label: 'Att', format: fmt.int },
+        { key: 'completions', label: 'Cmp', format: fmt.int },
+        { key: 'completion_percentage', label: 'Cmp%', format: fmt.f1 },
+        { key: 'pass_yards', label: 'Yds', format: fmt.int },
+        { key: 'pass_touchdowns', label: 'TD', format: fmt.int },
+        { key: 'interceptions', label: 'INT', format: fmt.int },
+        { key: 'passer_rating', label: 'Rtg', format: fmt.f1 },
+      ]
+    },
+    {
+      id: 'epa', label: 'EPA & EFFICIENCY', defaultOpen: true,
+      metrics: [
+        { key: 'passing_epa', label: 'EPA', format: fmt.f1, isEPA: true },
+        { key: 'epa_per_dropback', label: 'EPA/DB', format: fmt.sign2, isEPA: true },
+        { key: 'completion_percentage_above_expectation', label: 'CPOE', format: fmt.sign1, isEPA: true },
+        { key: 'dakota', label: 'DAKOTA', format: fmt.f2 },
+        { key: 'pacr', label: 'PACR', format: fmt.f2 },
+        { key: 'passing_first_downs', label: '1st', format: fmt.int },
+      ]
+    },
+    {
+      id: 'air', label: 'AIR YARDS', defaultOpen: false,
+      metrics: [
+        { key: 'avg_completed_air_yards', label: 'CAY', format: fmt.f1 },
+        { key: 'avg_intended_air_yards', label: 'IAY', format: fmt.f1 },
+        { key: 'avg_air_yards_to_sticks', label: 'AY/Stk', format: fmt.f1 },
+      ]
+    },
+    {
+      id: 'adv', label: 'ADVANCED', defaultOpen: false,
+      metrics: [
+        { key: 'avg_time_to_throw', label: 'TTT', format: fmt.f2 },
+        { key: 'aggressiveness', label: 'Aggr%', format: fmt.f1 },
+        { key: 'sacks', label: 'Sck', format: fmt.f1 },
+        { key: 'fantasy_points', label: 'FPts', format: fmt.f1 },
+      ]
+    }
+  ],
+  RB: [
+    {
+      id: 'core', label: 'CORE', defaultOpen: true,
+      metrics: [
+        { key: 'games', label: 'G', format: fmt.int },
+        { key: 'rush_attempts', label: 'Att', format: fmt.int },
+        { key: 'rush_yards', label: 'Yds', format: fmt.int },
+        { key: 'rush_touchdowns', label: 'TD', format: fmt.int },
+        { key: 'avg_rush_yards', label: 'YPC', format: fmt.f1 },
+      ]
+    },
+    {
+      id: 'epa', label: 'EPA & EFFICIENCY', defaultOpen: true,
+      metrics: [
+        { key: 'rushing_epa', label: 'EPA', format: fmt.f1, isEPA: true },
+        { key: 'epa_per_carry', label: 'EPA/C', format: fmt.sign2, isEPA: true },
+        { key: 'efficiency', label: 'Eff', format: fmt.f2 },
+        { key: 'rush_yards_over_expected', label: 'RYOE', format: fmt.signInt, isEPA: true },
+        { key: 'rush_yards_over_expected_per_att', label: 'YOE/A', format: fmt.sign2, isEPA: true },
+        { key: 'rushing_first_downs', label: '1st', format: fmt.int },
+      ]
+    },
+    {
+      id: 'adv', label: 'ADVANCED', defaultOpen: false,
+      metrics: [
+        { key: 'percent_attempts_gte_eight_defenders', label: 'Box%', format: fmt.f1 },
+        { key: 'avg_time_to_los', label: 'TTLOS', format: fmt.f2 },
+        { key: 'expected_rush_yards', label: 'xYds', format: fmt.f1 },
+        { key: 'racr', label: 'RACR', format: fmt.f2 },
+        { key: 'fantasy_points', label: 'FPts', format: fmt.f1 },
+      ]
+    }
+  ],
+  WR: [
+    {
+      id: 'core', label: 'CORE', defaultOpen: true,
+      metrics: [
+        { key: 'games', label: 'G', format: fmt.int },
+        { key: 'targets', label: 'Tgt', format: fmt.int },
+        { key: 'receptions', label: 'Rec', format: fmt.int },
+        { key: 'yards', label: 'Yds', format: fmt.int },
+        { key: 'rec_touchdowns', label: 'TD', format: fmt.int },
+        { key: 'catch_percentage', label: 'Ct%', format: fmt.f1 },
+      ]
+    },
+    {
+      id: 'epa', label: 'EPA & EFFICIENCY', defaultOpen: true,
+      metrics: [
+        { key: 'receiving_epa', label: 'EPA', format: fmt.f1, isEPA: true },
+        { key: 'epa_per_target', label: 'EPA/Tgt', format: fmt.sign2, isEPA: true },
+        { key: 'racr', label: 'RACR', format: fmt.f2 },
+        { key: 'receiving_first_downs', label: '1st', format: fmt.int },
+      ]
+    },
+    {
+      id: 'share', label: 'TARGET SHARE', defaultOpen: false,
+      metrics: [
+        { key: 'target_share', label: 'Tgt%', format: fmt.f1 },
+        { key: 'air_yards_share', label: 'AY%', format: fmt.f1 },
+        { key: 'wopr_x', label: 'WOPR', format: fmt.f2 },
+        { key: 'avg_intended_air_yards', label: 'IAY', format: fmt.f1 },
+        { key: 'percent_share_of_intended_air_yards', label: 'IAY%', format: fmt.f1 },
+      ]
+    },
+    {
+      id: 'sep', label: 'SEPARATION & YAC', defaultOpen: false,
+      metrics: [
+        { key: 'avg_cushion', label: 'Cush', format: fmt.f1 },
+        { key: 'avg_separation', label: 'Sep', format: fmt.f1 },
+        { key: 'avg_yac', label: 'YAC', format: fmt.f1 },
+        { key: 'avg_yac_above_expectation', label: 'YAC+', format: fmt.sign1, isEPA: true },
+        { key: 'fantasy_points', label: 'FPts', format: fmt.f1 },
+      ]
+    }
+  ],
+}
+METRIC_SECTIONS.TE = METRIC_SECTIONS.WR
 
-  // RB Rushing
-  { key: 'rush_attempts', label: 'Rush Att', format: (v) => v || '-', positions: ['RB'] },
-  { key: 'rush_yards', label: 'Rush Yds', format: (v) => v || '-', positions: ['RB'] },
-  { key: 'rush_touchdowns', label: 'Rush TD', format: (v) => v || '-', positions: ['RB'] },
-  { key: 'avg_rush_yards', label: 'YPC', format: (v) => v?.toFixed(1) || '-', positions: ['RB'] },
-  { key: 'efficiency', label: 'Efficiency', format: (v) => v?.toFixed(2) || '-', positions: ['RB'] },
-  { key: 'rush_yards_over_expected', label: 'RYOE', format: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(0)}` : '-', isEPA: true, positions: ['RB'] },
-  { key: 'rush_yards_over_expected_per_att', label: 'YOE/Att', format: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}` : '-', isEPA: true, positions: ['RB'] },
-  { key: 'percent_attempts_gte_eight_defenders', label: 'Box%', format: (v) => v?.toFixed(1) || '-', positions: ['RB'] },
+// Legacy flat list for game log rendering (kept for player detail view)
+const PLAYER_METRICS = {
+  QB: METRIC_SECTIONS.QB.flatMap(s => s.metrics),
+  RB: METRIC_SECTIONS.RB.flatMap(s => s.metrics),
+  WR: METRIC_SECTIONS.WR.flatMap(s => s.metrics),
+  TE: METRIC_SECTIONS.TE.flatMap(s => s.metrics),
+}
 
-  // WR/TE Receiving
-  { key: 'targets', label: 'Targets', format: (v) => v || '-', positions: ['WR', 'TE'] },
-  { key: 'receptions', label: 'Rec', format: (v) => v || '-', positions: ['WR', 'TE'] },
-  { key: 'yards', label: 'Rec Yds', format: (v) => v || '-', positions: ['WR', 'TE'] },
-  { key: 'rec_touchdowns', label: 'Rec TD', format: (v) => v || '-', positions: ['WR', 'TE'] },
-  { key: 'catch_percentage', label: 'Catch%', format: (v) => v?.toFixed(1) || '-', positions: ['WR', 'TE'] },
-  { key: 'avg_cushion', label: 'Cushion', format: (v) => v?.toFixed(1) || '-', positions: ['WR', 'TE'] },
-  { key: 'avg_separation', label: 'Sep', format: (v) => v?.toFixed(1) || '-', positions: ['WR', 'TE'] },
-  { key: 'avg_yac_above_expectation', label: 'YAC+', format: (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}` : '-', isEPA: true, positions: ['WR', 'TE'] }
+// Stats glossary definitions
+const GLOSSARY = [
+  { section: 'Core Passing', items: [
+    { abbr: 'G', name: 'Games Played', desc: 'Number of regular season games the player appeared in.' },
+    { abbr: 'Att', name: 'Pass Attempts', desc: 'Total pass attempts thrown by the quarterback.' },
+    { abbr: 'Cmp', name: 'Completions', desc: 'Total completed passes.' },
+    { abbr: 'Cmp%', name: 'Completion Percentage', desc: 'Percentage of pass attempts completed (Cmp / Att × 100).' },
+    { abbr: 'Yds', name: 'Passing Yards', desc: 'Total passing yards gained.' },
+    { abbr: 'TD', name: 'Passing Touchdowns', desc: 'Total passing touchdowns thrown.' },
+    { abbr: 'INT', name: 'Interceptions', desc: 'Total interceptions thrown.' },
+    { abbr: 'Rtg', name: 'Passer Rating', desc: 'NFL passer rating (scale 0–158.3). Combines completion %, yards/attempt, TD%, and INT%.' },
+  ]},
+  { section: 'EPA & Efficiency (QB)', items: [
+    { abbr: 'EPA', name: 'Expected Points Added', desc: 'Total expected points added on all pass plays. Measures how much a QB\'s passes improved their team\'s scoring expectation compared to average. Positive = above average.' },
+    { abbr: 'EPA/DB', name: 'EPA per Dropback', desc: 'EPA divided by pass attempts. Measures per-play efficiency — the best single number for evaluating QB play quality.' },
+    { abbr: 'CPOE', name: 'Completion % Over Expected', desc: 'Actual completion % minus expected completion % (from NGS model accounting for air yards, coverage, etc). Positive = more accurate than expected.' },
+    { abbr: 'DAKOTA', name: 'DAKOTA', desc: 'Adjusted EPA/play metric from nflfastR that accounts for strength of opposing defenses faced. Higher = better performance against tougher competition.' },
+    { abbr: 'PACR', name: 'Passer Air Conversion Ratio', desc: 'Passing yards divided by passing air yards. Measures how efficiently a QB converts air yards into actual yards. Values >1.0 mean YAC is supplementing air yards.' },
+    { abbr: '1st', name: 'Passing First Downs', desc: 'Total first downs gained through passing.' },
+  ]},
+  { section: 'Air Yards (QB)', items: [
+    { abbr: 'CAY', name: 'Completed Air Yards', desc: 'Average air yards on completed passes. How far downfield completions travel before being caught.' },
+    { abbr: 'IAY', name: 'Intended Air Yards', desc: 'Average air yards on all pass attempts. Measures how far downfield a QB targets on average.' },
+    { abbr: 'AY/Stk', name: 'Air Yards to Sticks', desc: 'Average air yards relative to the first down marker. Negative = throwing short of sticks; positive = throwing past them.' },
+  ]},
+  { section: 'Advanced Passing', items: [
+    { abbr: 'TTT', name: 'Time to Throw', desc: 'Average time (seconds) from snap to pass release. Lower = quicker processing or shorter routes.' },
+    { abbr: 'Aggr%', name: 'Aggressiveness', desc: 'Percentage of passes thrown into tight coverage windows (defender within 1 yard of receiver at pass arrival).' },
+    { abbr: 'Sck', name: 'Sacks Taken', desc: 'Number of times the QB was sacked.' },
+    { abbr: 'FPts', name: 'Fantasy Points', desc: 'Standard scoring fantasy football points for the season.' },
+  ]},
+  { section: 'Core Rushing', items: [
+    { abbr: 'G', name: 'Games Played', desc: 'Number of regular season games the player appeared in.' },
+    { abbr: 'Att', name: 'Rush Attempts', desc: 'Total rushing attempts (carries).' },
+    { abbr: 'Yds', name: 'Rush Yards', desc: 'Total rushing yards gained.' },
+    { abbr: 'TD', name: 'Rush Touchdowns', desc: 'Total rushing touchdowns scored.' },
+    { abbr: 'YPC', name: 'Yards Per Carry', desc: 'Average rushing yards per attempt.' },
+  ]},
+  { section: 'EPA & Efficiency (RB)', items: [
+    { abbr: 'EPA', name: 'Expected Points Added', desc: 'Total EPA on all rush plays. Measures how much a RB\'s carries improved their team\'s scoring expectation vs average.' },
+    { abbr: 'EPA/C', name: 'EPA per Carry', desc: 'EPA divided by rush attempts. Per-play rushing efficiency — the best single metric for evaluating RB impact.' },
+    { abbr: 'Eff', name: 'NGS Efficiency', desc: 'Rushing yards gained divided by expected rushing yards (from NGS model). Values >1.0 = outperforming expectation.' },
+    { abbr: 'RYOE', name: 'Rush Yards Over Expected', desc: 'Total rushing yards minus expected rushing yards. Positive = gained more yards than the blocking and play design would predict.' },
+    { abbr: 'YOE/A', name: 'Yards Over Expected per Attempt', desc: 'RYOE divided by rush attempts. Per-carry measure of how much a RB outperforms expected yardage.' },
+    { abbr: '1st', name: 'Rushing First Downs', desc: 'Total first downs gained through rushing.' },
+  ]},
+  { section: 'Advanced Rushing', items: [
+    { abbr: 'Box%', name: 'Stacked Box Rate', desc: 'Percentage of rush attempts facing 8+ defenders in the box. Higher = facing more loaded fronts.' },
+    { abbr: 'TTLOS', name: 'Time to Line of Scrimmage', desc: 'Average time (seconds) from handoff to crossing the line of scrimmage. Measures patience and burst.' },
+    { abbr: 'xYds', name: 'Expected Rush Yards', desc: 'Total expected rushing yards based on the NGS model (accounts for blocking, defenders, etc).' },
+    { abbr: 'RACR', name: 'Receiver Air Conversion Ratio', desc: 'Receiving yards divided by air yards targeted. Measures YAC contribution for pass-catching RBs.' },
+    { abbr: 'FPts', name: 'Fantasy Points', desc: 'Standard scoring fantasy football points for the season.' },
+  ]},
+  { section: 'Core Receiving', items: [
+    { abbr: 'G', name: 'Games Played', desc: 'Number of regular season games the player appeared in.' },
+    { abbr: 'Tgt', name: 'Targets', desc: 'Total pass targets (times the ball was thrown to this receiver).' },
+    { abbr: 'Rec', name: 'Receptions', desc: 'Total catches made.' },
+    { abbr: 'Yds', name: 'Receiving Yards', desc: 'Total receiving yards gained.' },
+    { abbr: 'TD', name: 'Receiving Touchdowns', desc: 'Total receiving touchdowns scored.' },
+    { abbr: 'Ct%', name: 'Catch Percentage', desc: 'Percentage of targets caught (Rec / Tgt × 100).' },
+  ]},
+  { section: 'EPA & Efficiency (WR/TE)', items: [
+    { abbr: 'EPA', name: 'Expected Points Added', desc: 'Total EPA on all targets. Measures how much receiving plays improved the team\'s scoring expectation.' },
+    { abbr: 'EPA/Tgt', name: 'EPA per Target', desc: 'EPA divided by targets. Per-opportunity receiving efficiency — accounts for incompletions and drops.' },
+    { abbr: 'RACR', name: 'Receiver Air Conversion Ratio', desc: 'Receiving yards divided by air yards targeted. Values >1.0 = strong YAC ability; <1.0 = drops or short-of-target catches.' },
+    { abbr: '1st', name: 'Receiving First Downs', desc: 'Total first downs gained through receptions.' },
+  ]},
+  { section: 'Target Share & Distribution', items: [
+    { abbr: 'Tgt%', name: 'Target Share', desc: 'Proportion of team pass targets directed at this receiver. Higher = more involved in the passing game.' },
+    { abbr: 'AY%', name: 'Air Yards Share', desc: 'Proportion of team air yards directed at this receiver. Indicates downfield usage and role in the offense.' },
+    { abbr: 'WOPR', name: 'Weighted Opportunity Rating', desc: 'Combines target share (1.5× weight) and air yards share (0.7× weight). A single number capturing receiving opportunity volume.' },
+    { abbr: 'IAY', name: 'Intended Air Yards', desc: 'Average depth of target (air yards per target). Measures how far downfield the receiver is being targeted.' },
+    { abbr: 'IAY%', name: 'Share of Intended Air Yards', desc: 'Receiver\'s share of the team\'s total intended air yards.' },
+  ]},
+  { section: 'Separation & YAC', items: [
+    { abbr: 'Cush', name: 'Average Cushion', desc: 'Average yards between the receiver and nearest defender at the time of snap. Indicates how much respect a receiver commands pre-play.' },
+    { abbr: 'Sep', name: 'Average Separation', desc: 'Average yards of separation from the nearest defender at the time the pass arrives. The key NGS route-running metric.' },
+    { abbr: 'YAC', name: 'Yards After Catch', desc: 'Average yards gained after the reception. Measures a receiver\'s ability to create yards with the ball.' },
+    { abbr: 'YAC+', name: 'YAC Above Expectation', desc: 'Actual YAC minus expected YAC (from NGS model). Positive = creating more yards after catch than expected given the catch location.' },
+    { abbr: 'FPts', name: 'Fantasy Points', desc: 'Standard scoring fantasy football points for the season.' },
+  ]},
 ]
+
+const ALL_SEASONS = [2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016]
 
 // NFL Teams
 const NFL_TEAMS = [
@@ -118,10 +266,14 @@ function NGSTerminal({ onNavigate }) {
   const [search, setSearch] = useState('')
   const [selectedSeasons, setSelectedSeasons] = useState([2025])
   const [viewMode, setViewMode] = useState('yearly')
+  const [yearDisplay, setYearDisplay] = useState('combined') // 'combined' or 'separate'
+  const [expandedSections, setExpandedSections] = useState({})
+  const [showGlossary, setShowGlossary] = useState(false)
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(false)
   const [sortBy, setSortBy] = useState(null)
   const [sortDesc, setSortDesc] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState(null)
 
   // Team-specific state
   const [teamStatsTeam, setTeamStatsTeam] = useState('KC')
@@ -138,6 +290,18 @@ function NGSTerminal({ onNavigate }) {
   const [teamRosterSeason, setTeamRosterSeason] = useState(2025)
   const [teamRoster, setTeamRoster] = useState({ qbs: [], rbs: [], receivers: [] })
   const [rosterLoading, setRosterLoading] = useState(false)
+
+  // Fetch last refresh timestamp on mount
+  useEffect(() => {
+    fetch(`${API_URL}/api/ngs/stats`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.refresh_log?.last_refresh) {
+          setLastUpdated(data.refresh_log.last_refresh)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (activeTab === 'PLAYERS') {
@@ -245,27 +409,50 @@ function NGSTerminal({ onNavigate }) {
       // Sum volume stats
       const volumeStats = ['attempts', 'completions', 'pass_yards', 'pass_touchdowns', 'interceptions',
                            'rush_attempts', 'rush_yards', 'rush_touchdowns',
-                           'targets', 'receptions', 'yards', 'rec_touchdowns']
+                           'targets', 'receptions', 'yards', 'rec_touchdowns',
+                           'passing_first_downs', 'rushing_first_downs', 'receiving_first_downs',
+                           'passing_epa', 'rushing_epa', 'receiving_epa',
+                           'rush_yards_over_expected', 'expected_rush_yards',
+                           'games', 'fantasy_points', 'fantasy_points_ppr']
 
       volumeStats.forEach(stat => {
-        if (aggregated[stat] !== undefined) {
-          aggregated[stat] = group.records.reduce((sum, r) => sum + (r[stat] || 0), 0)
+        const values = group.records.filter(r => r[stat] != null)
+        if (values.length > 0) {
+          aggregated[stat] = values.reduce((sum, r) => sum + (r[stat] || 0), 0)
         }
       })
 
       // Average rate stats
       const rateStats = ['completion_percentage', 'completion_percentage_above_expectation',
                          'avg_time_to_throw', 'aggressiveness', 'passer_rating',
-                         'avg_rush_yards', 'efficiency', 'avg_separation', 'avg_yac_above_expectation']
+                         'avg_rush_yards', 'efficiency', 'avg_separation', 'avg_yac_above_expectation',
+                         'avg_cushion', 'avg_yac', 'avg_completed_air_yards', 'avg_intended_air_yards',
+                         'avg_air_yards_to_sticks', 'avg_time_to_los',
+                         'percent_attempts_gte_eight_defenders',
+                         'dakota', 'pacr', 'racr', 'target_share', 'air_yards_share', 'wopr_x',
+                         'catch_percentage', 'percent_share_of_intended_air_yards',
+                         'sacks']
 
       rateStats.forEach(stat => {
-        if (aggregated[stat] !== undefined) {
-          const values = group.records.filter(r => r[stat] != null).map(r => r[stat])
-          aggregated[stat] = values.length > 0
-            ? values.reduce((sum, v) => sum + v, 0) / values.length
-            : null
+        const values = group.records.filter(r => r[stat] != null).map(r => r[stat])
+        if (values.length > 0) {
+          aggregated[stat] = values.reduce((sum, v) => sum + v, 0) / values.length
         }
       })
+
+      // Recompute per-play EPA rates from aggregated totals
+      if (aggregated.passing_epa != null && aggregated.attempts) {
+        aggregated.epa_per_dropback = aggregated.passing_epa / aggregated.attempts
+      }
+      if (aggregated.rushing_epa != null && aggregated.rush_attempts) {
+        aggregated.epa_per_carry = aggregated.rushing_epa / aggregated.rush_attempts
+      }
+      if (aggregated.receiving_epa != null && aggregated.targets) {
+        aggregated.epa_per_target = aggregated.receiving_epa / aggregated.targets
+      }
+      if (aggregated.rush_yards_over_expected != null && aggregated.rush_attempts) {
+        aggregated.rush_yards_over_expected_per_att = aggregated.rush_yards_over_expected / aggregated.rush_attempts
+      }
 
       return aggregated
     })
@@ -397,12 +584,54 @@ function NGSTerminal({ onNavigate }) {
   }
 
   // Determine display data and relevant metrics
-  const displayedData = viewMode === 'career' ? aggregateCareerStats(sortedData) : sortedData
+  const getDisplayData = () => {
+    if (viewMode === 'career') return aggregateCareerStats(sortedData)
+    // Multi-year combined: aggregate into single row per player
+    if (yearDisplay === 'combined' && selectedSeasons.length > 1) {
+      return aggregateCareerStats(sortedData)
+    }
+    // Multi-year separate: group by player, show each season row consecutively
+    if (yearDisplay === 'separate' && selectedSeasons.length > 1) {
+      const playerGroups = {}
+      sortedData.forEach(record => {
+        const id = record.player_gsis_id || record.player_display_name
+        if (!playerGroups[id]) playerGroups[id] = []
+        playerGroups[id].push(record)
+      })
+      Object.values(playerGroups).forEach(rows => rows.sort((a, b) => b.season - a.season))
+      const groupOrder = []
+      const seen = new Set()
+      sortedData.forEach(record => {
+        const id = record.player_gsis_id || record.player_display_name
+        if (!seen.has(id)) {
+          seen.add(id)
+          groupOrder.push(id)
+        }
+      })
+      return groupOrder.flatMap(id => playerGroups[id])
+    }
+    return sortedData
+  }
+  const displayedData = getDisplayData()
 
-  // Filter metrics to only show columns relevant to selected positions
-  const relevantMetrics = UNIFIED_METRICS.filter(metric =>
-    metric.positions.some(pos => selectedPositions.includes(pos))
-  )
+  // Build sections for the selected position
+  const primaryPosition = selectedPositions[0] || 'QB'
+  const sections = (METRIC_SECTIONS[primaryPosition] || []).map(section => ({
+    ...section,
+    expanded: expandedSections[section.id] !== undefined
+      ? expandedSections[section.id]
+      : section.defaultOpen
+  }))
+
+  const toggleSection = (sectionId) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [sectionId]: prev[sectionId] !== undefined ? !prev[sectionId] : false
+    }))
+  }
+
+  // Flat list of all visible metrics (from expanded sections)
+  const relevantMetrics = sections.flatMap(s => s.expanded ? s.metrics : [])
 
   return (
     <div style={{
@@ -435,9 +664,36 @@ function NGSTerminal({ onNavigate }) {
             </h1>
             <div style={{ fontSize: '0.875rem', color: '#888' }}>
               <span style={{ color: '#0f0' }}>● LIVE</span> | SEASONS: {selectedSeasons.join(', ')}
+              {lastUpdated && (() => {
+                const d = new Date(lastUpdated)
+                const now = new Date()
+                const daysSince = Math.floor((now - d) / (1000 * 60 * 60 * 24))
+                const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()
+                return (
+                  <span style={{ color: daysSince > 14 ? '#f80' : '#888' }}>
+                    {' '}| DATA: {dateStr}
+                  </span>
+                )
+              })()}
             </div>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <button
+              onClick={() => setShowGlossary(true)}
+              style={{
+                backgroundColor: 'transparent',
+                color: '#4a9eff',
+                border: '1px solid #4a9eff',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontFamily: "'Courier New', monospace",
+                fontSize: '0.75rem'
+              }}
+              title="Stats Glossary"
+            >
+              ? GLOSSARY
+            </button>
             <button
               onClick={onNavigate}
               style={{
@@ -511,7 +767,28 @@ function NGSTerminal({ onNavigate }) {
                   gap: '0.5rem',
                   fontSize: '0.75rem'
                 }}>
-                  {[2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016].map(year => (
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      cursor: 'pointer',
+                      color: selectedSeasons.length === ALL_SEASONS.length ? '#4a9eff' : '#888',
+                      gridColumn: 'span 3',
+                      marginBottom: '0.25rem'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedSeasons.length === ALL_SEASONS.length}
+                      onChange={(e) => {
+                        setSelectedSeasons(e.target.checked ? [...ALL_SEASONS] : [ALL_SEASONS[0]])
+                      }}
+                      style={{ accentColor: '#4a9eff', cursor: 'pointer' }}
+                    />
+                    ALL
+                  </label>
+                  {ALL_SEASONS.map(year => (
                     <label key={year} style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -582,6 +859,38 @@ function NGSTerminal({ onNavigate }) {
                     CAREER STATS
                   </button>
                 </div>
+                {selectedSeasons.length > 1 && viewMode === 'yearly' && (
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                    <button
+                      onClick={() => setYearDisplay('combined')}
+                      style={{
+                        backgroundColor: yearDisplay === 'combined' ? '#4a9eff' : 'transparent',
+                        color: yearDisplay === 'combined' ? '#0a0a0f' : '#4a9eff',
+                        border: '1px solid #4a9eff',
+                        padding: '0.2rem 0.5rem',
+                        cursor: 'pointer',
+                        fontFamily: "'Courier New', monospace",
+                        fontSize: '0.65rem'
+                      }}
+                    >
+                      COMBINED
+                    </button>
+                    <button
+                      onClick={() => setYearDisplay('separate')}
+                      style={{
+                        backgroundColor: yearDisplay === 'separate' ? '#4a9eff' : 'transparent',
+                        color: yearDisplay === 'separate' ? '#0a0a0f' : '#4a9eff',
+                        border: '1px solid #4a9eff',
+                        padding: '0.2rem 0.5rem',
+                        cursor: 'pointer',
+                        fontFamily: "'Courier New', monospace",
+                        fontSize: '0.65rem'
+                      }}
+                    >
+                      SEPARATE
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -730,23 +1039,25 @@ function NGSTerminal({ onNavigate }) {
                 fontSize: '0.75rem'
               }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid #4a9eff' }}>
-                    <th style={{
-                      padding: '0.75rem',
+                  {/* Section header row */}
+                  <tr style={{ borderBottom: '1px solid #333' }}>
+                    <th rowSpan={2} style={{
+                      padding: '0.5rem',
                       textAlign: 'left',
                       color: '#4a9eff',
                       fontWeight: 'bold',
                       position: 'sticky',
                       left: 0,
                       backgroundColor: '#1a1a1f',
-                      zIndex: 10
+                      zIndex: 11,
+                      verticalAlign: 'bottom'
                     }}>
                       #
                     </th>
-                    <th
+                    <th rowSpan={2}
                       onClick={() => handleSort('player_display_name')}
                       style={{
-                        padding: '0.75rem',
+                        padding: '0.5rem',
                         textAlign: 'left',
                         color: '#4a9eff',
                         fontWeight: 'bold',
@@ -754,88 +1065,135 @@ function NGSTerminal({ onNavigate }) {
                         position: 'sticky',
                         left: '3rem',
                         backgroundColor: '#1a1a1f',
-                        zIndex: 10
+                        zIndex: 11,
+                        verticalAlign: 'bottom'
                       }}
                     >
                       PLAYER {sortBy === 'player_display_name' && (sortDesc ? '▼' : '▲')}
                     </th>
-                    <th style={{
-                      padding: '0.75rem',
+                    <th rowSpan={2} style={{
+                      padding: '0.5rem',
                       textAlign: 'center',
                       color: '#4a9eff',
-                      fontWeight: 'bold'
+                      fontWeight: 'bold',
+                      verticalAlign: 'bottom'
                     }}>
                       TEAM
                     </th>
-                    {viewMode === 'yearly' && (
-                      <th style={{
-                        padding: '0.75rem',
-                        textAlign: 'center',
-                        color: '#4a9eff',
-                        fontWeight: 'bold'
-                      }}>
-                        SEASON
-                      </th>
-                    )}
-                    {viewMode === 'career' && (
-                      <th style={{
-                        padding: '0.75rem',
-                        textAlign: 'center',
-                        color: '#4a9eff',
-                        fontWeight: 'bold'
-                      }}>
-                        YEARS
-                      </th>
-                    )}
-                    {relevantMetrics.map(metric => (
+                    <th rowSpan={2} style={{
+                      padding: '0.5rem',
+                      textAlign: 'center',
+                      color: '#4a9eff',
+                      fontWeight: 'bold',
+                      verticalAlign: 'bottom'
+                    }}>
+                      {(() => {
+                        const isMultiYearCombined = viewMode === 'yearly' && yearDisplay === 'combined' && selectedSeasons.length > 1
+                        return (viewMode === 'career' || isMultiYearCombined) ? 'YEARS' : 'SEASON'
+                      })()}
+                    </th>
+                    {sections.map(section => (
                       <th
-                        key={metric.key}
-                        onClick={() => handleSort(metric.key)}
+                        key={section.id}
+                        colSpan={section.expanded ? section.metrics.length : 1}
+                        onClick={() => toggleSection(section.id)}
                         style={{
-                          padding: '0.75rem',
-                          textAlign: 'right',
-                          color: '#4a9eff',
+                          padding: '0.4rem 0.75rem',
+                          textAlign: 'center',
+                          color: section.expanded ? '#4a9eff' : '#666',
                           fontWeight: 'bold',
                           cursor: 'pointer',
-                          whiteSpace: 'nowrap'
+                          fontSize: '0.65rem',
+                          letterSpacing: '0.05em',
+                          borderBottom: section.expanded ? '2px solid #4a9eff' : '1px solid #333',
+                          borderLeft: '1px solid #333',
+                          backgroundColor: section.expanded ? '#1a1a2a' : '#151518',
+                          whiteSpace: 'nowrap',
+                          userSelect: 'none'
                         }}
                       >
-                        {metric.label} {sortBy === metric.key && (sortDesc ? '▼' : '▲')}
+                        {section.expanded ? '−' : '+'} {section.label}
                       </th>
                     ))}
                   </tr>
+                  {/* Metric column header row */}
+                  <tr style={{ borderBottom: '1px solid #4a9eff' }}>
+                    {sections.map(section => {
+                      if (!section.expanded) {
+                        return (
+                          <th key={`${section.id}-collapsed`} style={{
+                            padding: '0.4rem',
+                            textAlign: 'center',
+                            color: '#555',
+                            fontSize: '0.6rem',
+                            borderLeft: '1px solid #333'
+                          }}>
+                            ...
+                          </th>
+                        )
+                      }
+                      return section.metrics.map((metric, mi) => (
+                        <th
+                          key={metric.key}
+                          onClick={() => handleSort(metric.key)}
+                          style={{
+                            padding: '0.4rem 0.5rem',
+                            textAlign: 'right',
+                            color: '#4a9eff',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            fontSize: '0.7rem',
+                            borderLeft: mi === 0 ? '1px solid #333' : 'none'
+                          }}
+                        >
+                          {metric.label} {sortBy === metric.key && (sortDesc ? '▼' : '▲')}
+                        </th>
+                      ))
+                    })}
+                  </tr>
                 </thead>
                 <tbody>
-                  {displayedData.map((player, index) => (
+                  {displayedData.map((player, index) => {
+                    const isSeparate = yearDisplay === 'separate' && selectedSeasons.length > 1 && viewMode === 'yearly'
+                    const playerId = player.player_gsis_id || player.player_display_name
+                    const prevId = index > 0 ? (displayedData[index - 1].player_gsis_id || displayedData[index - 1].player_display_name) : null
+                    const nextId = index < displayedData.length - 1 ? (displayedData[index + 1]?.player_gsis_id || displayedData[index + 1]?.player_display_name) : null
+                    const isFirstOfGroup = isSeparate && playerId !== prevId
+                    const isLastOfGroup = isSeparate && playerId !== nextId
+                    const bgColor = index % 2 === 0 ? '#1a1a1f' : '#141418'
+
+                    return (
                     <tr
                       key={`${player.player_gsis_id}-${player.season}-${index}`}
                       onClick={() => fetchPlayerGameLogs(player)}
                       style={{
-                        borderBottom: '1px solid #222',
-                        backgroundColor: index % 2 === 0 ? '#1a1a1f' : '#141418',
+                        borderBottom: isLastOfGroup ? '2px solid #4a9eff44' : '1px solid #222',
+                        borderTop: isFirstOfGroup && index > 0 ? '2px solid #4a9eff44' : 'none',
+                        backgroundColor: bgColor,
                         cursor: 'pointer'
                       }}
                       onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#252530'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#1a1a1f' : '#141418'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bgColor}
                     >
                       <td style={{
                         padding: '0.75rem',
                         color: '#888',
                         position: 'sticky',
                         left: 0,
-                        backgroundColor: index % 2 === 0 ? '#1a1a1f' : '#141418'
+                        backgroundColor: bgColor
                       }}>
-                        {index + 1}
+                        {isSeparate ? (isFirstOfGroup ? index + 1 : '') : index + 1}
                       </td>
                       <td style={{
                         padding: '0.75rem',
-                        color: '#e0e0e0',
+                        color: isSeparate && !isFirstOfGroup ? '#666' : '#e0e0e0',
                         fontWeight: 'bold',
                         position: 'sticky',
                         left: '3rem',
-                        backgroundColor: index % 2 === 0 ? '#1a1a1f' : '#141418'
+                        backgroundColor: bgColor
                       }}>
-                        {player.player_display_name}
+                        {isSeparate && !isFirstOfGroup ? '↳ ' + player.player_display_name : player.player_display_name}
                       </td>
                       <td style={{
                         padding: '0.75rem',
@@ -844,48 +1202,59 @@ function NGSTerminal({ onNavigate }) {
                       }}>
                         {player.team_abbr}
                       </td>
-                      {viewMode === 'yearly' && (
-                        <td style={{
-                          padding: '0.75rem',
-                          textAlign: 'center',
-                          color: '#e0e0e0'
-                        }}>
-                          {player.season}
-                        </td>
-                      )}
-                      {viewMode === 'career' && (
-                        <td style={{
-                          padding: '0.75rem',
-                          textAlign: 'center',
-                          color: '#888',
-                          fontSize: '0.7rem'
-                        }}>
-                          ({player.seasons_count} seasons)
-                        </td>
-                      )}
-                      {relevantMetrics.map(metric => {
-                        const value = player[metric.key]
-                        let color = '#e0e0e0'
-
-                        if (metric.isEPA && value != null) {
-                          color = value > 0 ? '#0f0' : value < 0 ? '#f00' : '#e0e0e0'
+                      {(() => {
+                        const isMultiYearCombined = viewMode === 'yearly' && yearDisplay === 'combined' && selectedSeasons.length > 1
+                        const isCombinedOrCareer = viewMode === 'career' || isMultiYearCombined
+                        if (isCombinedOrCareer) {
+                          return (
+                            <td style={{ padding: '0.75rem', textAlign: 'center', color: '#888', fontSize: '0.7rem' }}>
+                              {player.season} ({player.seasons_count} seasons)
+                            </td>
+                          )
                         }
-
                         return (
-                          <td
-                            key={metric.key}
-                            style={{
-                              padding: '0.75rem',
-                              textAlign: 'right',
-                              color
-                            }}
-                          >
-                            {metric.format(value)}
+                          <td style={{ padding: '0.75rem', textAlign: 'center', color: '#e0e0e0' }}>
+                            {player.season}
                           </td>
                         )
+                      })()}
+                      {sections.map(section => {
+                        if (!section.expanded) {
+                          return (
+                            <td key={`${section.id}-c`} style={{
+                              padding: '0.5rem',
+                              textAlign: 'center',
+                              color: '#444',
+                              borderLeft: '1px solid #282828'
+                            }}>
+                              ·
+                            </td>
+                          )
+                        }
+                        return section.metrics.map((metric, mi) => {
+                          const value = player[metric.key]
+                          let color = '#e0e0e0'
+                          if (metric.isEPA && value != null) {
+                            color = value > 0 ? '#0f0' : value < 0 ? '#f00' : '#e0e0e0'
+                          }
+                          return (
+                            <td
+                              key={metric.key}
+                              style={{
+                                padding: '0.5rem 0.5rem',
+                                textAlign: 'right',
+                                color,
+                                borderLeft: mi === 0 ? '1px solid #282828' : 'none'
+                              }}
+                            >
+                              {metric.format(value)}
+                            </td>
+                          )
+                        })
                       })}
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1472,6 +1841,112 @@ function NGSTerminal({ onNavigate }) {
       }}>
         NFL NEXT GEN STATS | RFID TRACKING DATA (10Hz) | 2016-PRESENT
       </div>
+
+      {/* Glossary Modal */}
+      {showGlossary && (
+        <div
+          onClick={() => setShowGlossary(false)}
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.85)',
+            zIndex: 1000,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'flex-start',
+            paddingTop: '3rem',
+            overflowY: 'auto'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: '#0a0a0f',
+              border: '1px solid #4a9eff',
+              maxWidth: '800px',
+              width: '90%',
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              padding: '2rem',
+              fontFamily: "'Courier New', monospace",
+              marginBottom: '3rem'
+            }}
+          >
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '1.5rem',
+              borderBottom: '1px solid #4a9eff',
+              paddingBottom: '1rem'
+            }}>
+              <h2 style={{ color: '#4a9eff', margin: 0, fontSize: '1.25rem' }}>
+                STATS GLOSSARY
+              </h2>
+              <button
+                onClick={() => setShowGlossary(false)}
+                style={{
+                  backgroundColor: 'transparent',
+                  color: '#888',
+                  border: '1px solid #333',
+                  padding: '0.25rem 0.75rem',
+                  cursor: 'pointer',
+                  fontFamily: "'Courier New', monospace",
+                  fontSize: '0.875rem'
+                }}
+              >
+                X CLOSE
+              </button>
+            </div>
+
+            {GLOSSARY.map(group => (
+              <div key={group.section} style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{
+                  color: '#4a9eff',
+                  fontSize: '0.8rem',
+                  letterSpacing: '0.1em',
+                  marginBottom: '0.75rem',
+                  borderBottom: '1px solid #333',
+                  paddingBottom: '0.25rem'
+                }}>
+                  {group.section.toUpperCase()}
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {group.items.map(item => (
+                    <div key={item.abbr + group.section} style={{
+                      display: 'grid',
+                      gridTemplateColumns: '60px 1fr',
+                      gap: '0.75rem',
+                      padding: '0.4rem 0',
+                      borderBottom: '1px solid #1a1a1f'
+                    }}>
+                      <span style={{
+                        color: '#4a9eff',
+                        fontWeight: 'bold',
+                        fontSize: '0.8rem'
+                      }}>
+                        {item.abbr}
+                      </span>
+                      <div>
+                        <span style={{ color: '#e0e0e0', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                          {item.name}
+                        </span>
+                        <span style={{ color: '#888', fontSize: '0.7rem', marginLeft: '0.5rem' }}>
+                          {item.desc}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            <div style={{ color: '#555', fontSize: '0.65rem', marginTop: '1rem', borderTop: '1px solid #333', paddingTop: '0.75rem' }}>
+              NGS metrics sourced from NFL Next Gen Stats (RFID tracking). EPA and seasonal stats sourced from nflfastR play-by-play data via nfl_data_py.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

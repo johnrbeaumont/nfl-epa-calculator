@@ -1,111 +1,128 @@
-# NFL EPA Calculator - Frontend
+# Frontend — Component Reference
 
-React frontend for the NFL EPA Calculator application.
+React + Vite frontend for the NFL Analytics Terminal.
 
-## Features
-
-- **Team Selection**: Choose home and away teams with NFL team logos
-- **Game Situation Input**: Configure down, distance, field position
-- **Score & Time**: Set scores, time remaining, and timeouts
-- **Real-time EPA Calculation**: Get instant Expected Points Added predictions
-- **Beautiful UI**: Modern, responsive design with Tailwind CSS
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 18+ installed
-- Backend API running on http://localhost:8000
-
-### Installation
-
-```bash
-# Install dependencies
-npm install
-```
-
-### Development
-
-```bash
-# Start development server (http://localhost:3000)
-npm run dev
-```
-
-The frontend will automatically proxy API requests to the backend at http://localhost:8000.
-
-### Build for Production
-
-```bash
-# Create production build
-npm run build
-
-# Preview production build
-npm run preview
-```
-
-## Project Structure
-
-```
-frontend/
-├── public/              # Static assets
-├── src/
-│   ├── components/      # React components
-│   │   └── EPACalculator.jsx
-│   ├── data/            # Static data
-│   │   └── teams.json   # NFL teams with logos
-│   ├── App.jsx          # Main app component
-│   ├── main.jsx         # Entry point
-│   └── index.css        # Global styles (Tailwind)
-├── index.html           # HTML template
-├── vite.config.js       # Vite configuration
-├── tailwind.config.js   # Tailwind configuration
-└── package.json         # Dependencies
-```
-
-## Tech Stack
-
-- **React 18**: UI framework
-- **Vite**: Build tool and dev server
-- **Tailwind CSS**: Utility-first CSS framework
-- **ESPN CDN**: NFL team logos
-
-## API Integration
-
-The app connects to the FastAPI backend:
-
-- **Endpoint**: POST http://localhost:8000/api/calculate
-- **Request**: Game situation data (teams, down, distance, etc.)
-- **Response**: EPA value and metadata
-
-## Team Logos
-
-Team logos are loaded from ESPN's CDN:
-`https://a.espncdn.com/i/teamlogos/nfl/500/{team_abbr}.png`
-
-All 32 NFL teams are supported with official abbreviations.
-
-## Environment Variables
-
-To change the API endpoint, update the proxy configuration in `vite.config.js`.
-
-## Deployment
-
-The frontend can be deployed to:
-
-- **Vercel** (recommended)
-- **Netlify**
-- **GitHub Pages**
-- Any static hosting service
-
-Update the API endpoint in production to point to your deployed backend.
-
-## Next Steps
-
-- Phase 5: Deploy to production
-- Add Win Probability model integration (Phase 2b)
-- Add play-by-play simulation
-- Historical comparisons
+**Local**: http://localhost:3000
+**Production**: https://nfl-epa-calculator.vercel.app
 
 ---
 
-**Status**: Phase 4 - Frontend Development ✓
+## Start locally
+
+```bash
+# From nfl-epa-calculator/frontend/
+npm install
+npm run dev -- --port 3000
+```
+
+Requires backend running at http://localhost:8000.
+
+---
+
+## Routing
+
+Navigation is managed entirely in `App.jsx` with a single `activeView` state — no router library.
+
+```
+'home'        → HomePage.jsx
+'calculator'  → EPACalculator.jsx
+'stats'       → NGSTerminal.jsx
+```
+
+All three views are full-screen. Switching views is done via `onNavigate` props.
+
+---
+
+## Component map
+
+```
+src/
+├── App.jsx                    # 3-way router: home / calculator / stats
+├── main.jsx                   # React entry point
+├── index.css                  # Tailwind base (mostly unused — components use inline styles)
+├── data/
+│   └── teams.json             # 32 NFL teams: { abbr, name, logo }
+└── components/
+    ├── HomePage.jsx           # Landing screen — two module selection tiles
+    ├── EPACalculator.jsx      # EPA + Win Probability calculator form + results
+    ├── NGSTerminal.jsx        # Full Next Gen Stats explorer (~1480 lines)
+    └── NGSStatsExplorer.jsx   # UNUSED legacy component — do not modify
+```
+
+---
+
+## Design system
+
+All active components use **inline styles** with this shared dark terminal palette:
+
+| Token | Value | Usage |
+|---|---|---|
+| Background | `#0a0a0f` | Page background |
+| Surface | `#1a1a1f` | Cards, panels |
+| Surface hover | `#252530` | Row hover |
+| Border | `#333` | Default borders |
+| Border active | `#4a9eff` | Focus, selected |
+| Text primary | `#e0e0e0` | Body text |
+| Text muted | `#888` | Labels, hints |
+| Accent | `#4a9eff` | Headings, buttons, links |
+| Positive | `#0f0` | TDs, positive EPA |
+| Negative | `#f00` | INTs, negative EPA |
+| Warning | `#f80` | Borderline values |
+| Font | `'Courier New', monospace` | All text |
+
+---
+
+## NGSTerminal — key state
+
+`NGSTerminal.jsx` is the most complex component. Key state at a glance:
+
+**PLAYERS tab:**
+- `selectedPositions` — array, multi-select (QB / RB / WR / TE / DL / LB / DB)
+- `selectedSeasons` — array, multi-select (2016–2024)
+- `viewMode` — `'yearly'` | `'career'`
+- `data` — raw fetched records; `displayedData` = career-aggregated or raw depending on mode
+- `sortBy`, `sortDesc` — column sort state
+
+**TEAMS tab:**
+- `selectedTeamForRoster` — `null` (show grid) | `'KC'` etc. (show roster)
+- `teamRosterSeason` — year for roster view (default 2024)
+- `teamRoster` — `{ qbs: [], rbs: [], receivers: [] }`
+- `rosterLoading`
+
+**Shared (both tabs):**
+- `selectedPlayer` + `playerGameLogs` + `playerLogsLoading` — game log modal
+
+**Data fetching:**
+- `fetchPlayerData()` — parallel fetch for all position × season combos
+- `fetchTeamRoster(team, season)` — 3 parallel fetches (passing / rushing / receiving) for a team
+- `fetchPlayerGameLogs(player)` — fetches all weeks × all seasons (2016–2024) for one player
+- `aggregateCareerStats(data)` — groups by `player_gsis_id` (falls back to `player_display_name`)
+
+---
+
+## Environment variables
+
+| Variable | Dev value | Prod value (Vercel) |
+|---|---|---|
+| `VITE_API_URL` | `http://localhost:8000` (fallback) | `https://nfl-epa-api.onrender.com` |
+
+Set in Vercel dashboard under Project Settings → Environment Variables.
+
+---
+
+## Build
+
+```bash
+npm run build    # Output: dist/
+npm run preview  # Preview production build locally
+```
+
+Vercel auto-deploys on push to `main`.
+
+---
+
+## Gotchas
+
+- `NGSStatsExplorer.jsx` is an older component that is **not rendered anywhere** — ignore it.
+- Tailwind is configured but the active components use inline styles exclusively. `index.css` provides some base card/button utility classes used only by EPACalculator.
+- Team logos come from ESPN CDN: `https://a.espncdn.com/i/teamlogos/nfl/500/{abbr}.png`

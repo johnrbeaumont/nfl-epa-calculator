@@ -65,6 +65,7 @@ htmlcov/
 # Large data files
 data/*.parquet
 data/*.csv
+*.db
 !models/*.joblib
 !models/*.json
 !models/*.csv
