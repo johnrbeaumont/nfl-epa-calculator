@@ -20,10 +20,12 @@ ipywidgets>=8.1.0           # Interactive widgets
 # Model Saving
 joblib>=1.3.0               # Model serialization
 
-# API (Phase 3)
-# fastapi>=0.100.0          # Uncomment when ready for Phase 3
-# uvicorn[standard]>=0.23.0 # ASGI server
-# pydantic>=2.0.0           # Data validation
+# API
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+pydantic>=2.0.0
+sqlalchemy>=2.0.0
+apscheduler>=3.10.0         # Background scheduler for daily data refresh
 
 # Development Tools
 black>=23.0.0               # Code formatting

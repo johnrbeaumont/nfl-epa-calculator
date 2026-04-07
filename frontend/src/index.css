@@ -2,12 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── NFL Font Faces ─────────────────────────────────────────────── */
+
+/* All-ProSans — primary UI font */
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-Thin.otf') format('opentype'); font-weight: 100; font-style: normal; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-ThinItalic.otf') format('opentype'); font-weight: 100; font-style: italic; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-Light.otf') format('opentype'); font-weight: 300; font-style: normal; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-LightItalic.otf') format('opentype'); font-weight: 300; font-style: italic; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-Regular.otf') format('opentype'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-RegularItalic.otf') format('opentype'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-Medium.otf') format('opentype'); font-weight: 500; font-style: normal; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-MediumItalic.otf') format('opentype'); font-weight: 500; font-style: italic; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-SemiBold.otf') format('opentype'); font-weight: 600; font-style: normal; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-SemiBoldItalic.otf') format('opentype'); font-weight: 600; font-style: italic; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-Bold.otf') format('opentype'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-BoldItalic.otf') format('opentype'); font-weight: 700; font-style: italic; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-Heavy.otf') format('opentype'); font-weight: 800; font-style: normal; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-HeavyItalic.otf') format('opentype'); font-weight: 800; font-style: italic; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-Black.otf') format('opentype'); font-weight: 900; font-style: normal; }
+@font-face { font-family: 'All-ProSans'; src: url('/fonts/All-ProSans-BlackItalic.otf') format('opentype'); font-weight: 900; font-style: italic; }
+
+/* All-ProStats — stats/numbers */
+@font-face { font-family: 'All-ProStats'; src: url('/fonts/All-ProStats-Light.otf') format('opentype'); font-weight: 300; font-style: normal; }
+@font-face { font-family: 'All-ProStats'; src: url('/fonts/All-ProStats-LightItalic.otf') format('opentype'); font-weight: 300; font-style: italic; }
+@font-face { font-family: 'All-ProStats'; src: url('/fonts/All-ProStats-Regular.otf') format('opentype'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'All-ProStats'; src: url('/fonts/All-ProStats-Italic.otf') format('opentype'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'All-ProStats'; src: url('/fonts/All-ProStats-Medium.otf') format('opentype'); font-weight: 500; font-style: normal; }
+@font-face { font-family: 'All-ProStats'; src: url('/fonts/All-ProStats-MediumItalic.otf') format('opentype'); font-weight: 500; font-style: italic; }
+@font-face { font-family: 'All-ProStats'; src: url('/fonts/All-ProStats-Bold.otf') format('opentype'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'All-ProStats'; src: url('/fonts/All-ProStats-BoldItalic.otf') format('opentype'); font-weight: 700; font-style: italic; }
+
+/* EndzoneSans */
+@font-face { font-family: 'EndzoneSans'; src: url('/fonts/EndzoneSans-Light.otf') format('opentype'); font-weight: 300; font-style: normal; }
+@font-face { font-family: 'EndzoneSans'; src: url('/fonts/EndzoneSans-Medium.otf') format('opentype'); font-weight: 500; font-style: normal; }
+@font-face { font-family: 'EndzoneSans'; src: url('/fonts/EndzoneSans-Bold.otf') format('opentype'); font-weight: 700; font-style: normal; }
+
+/* EndzoneSans Condensed — compact labels */
+@font-face { font-family: 'EndzoneSansCond'; src: url('/fonts/EndzoneSansCond-Light.otf') format('opentype'); font-weight: 300; font-style: normal; }
+@font-face { font-family: 'EndzoneSansCond'; src: url('/fonts/EndzoneSansCond-Medium.otf') format('opentype'); font-weight: 500; font-style: normal; }
+@font-face { font-family: 'EndzoneSansCond'; src: url('/fonts/EndzoneSansCond-Bold.otf') format('opentype'); font-weight: 700; font-style: normal; }
+
+/* AllProDisplay — big headings */
+@font-face { font-family: 'AllProDisplay'; src: url('/fonts/AllProDisplayC-Regular.otf') format('opentype'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'AllProDisplay'; src: url('/fonts/AllProDisplayC-Medium.otf') format('opentype'); font-weight: 500; font-style: normal; }
+@font-face { font-family: 'AllProDisplay'; src: url('/fonts/AllProDisplayC-SemiBold.otf') format('opentype'); font-weight: 600; font-style: normal; }
+@font-face { font-family: 'AllProDisplay'; src: url('/fonts/AllProDisplayC-Bold.otf') format('opentype'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'AllProDisplay'; src: url('/fonts/AllProDisplayC-Black.otf') format('opentype'); font-weight: 900; font-style: normal; }
+
+/* NFLIcons — icon font */
+@font-face { font-family: 'NFLIcons'; src: url('/fonts/NFLIcons.ttf') format('truetype'); font-weight: 400; font-style: normal; }
+
 @layer base {
   body {
     @apply m-0 antialiased;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-      sans-serif;
+    font-family: 'All-ProSans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   }
 
   code {

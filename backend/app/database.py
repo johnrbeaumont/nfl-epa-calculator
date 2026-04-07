@@ -244,6 +244,9 @@ class NGSDefense(Base):
     avg_time_to_pressure = Column(Float)
     passer_rating_allowed = Column(Float)
 
+    # Turnover Metrics
+    forced_fumbles = Column(Integer)
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

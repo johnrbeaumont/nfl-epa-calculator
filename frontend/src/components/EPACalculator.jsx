@@ -161,7 +161,7 @@ export default function EPACalculator({ onNavigate }) {
       minHeight: '100vh',
       backgroundColor: '#0a0a0f',
       color: '#e0e0e0',
-      fontFamily: "'Courier New', monospace",
+      fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
       padding: '2rem'
     }}>
       {/* Header */}
@@ -195,7 +195,7 @@ export default function EPACalculator({ onNavigate }) {
               border: '1px solid #333',
               padding: '0.5rem 1rem',
               cursor: 'pointer',
-              fontFamily: "'Courier New', monospace",
+              fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
               fontSize: '0.75rem'
             }}
           >
@@ -231,7 +231,7 @@ export default function EPACalculator({ onNavigate }) {
                 border: '1px solid #4a9eff',
                 padding: '0.75rem',
                 cursor: 'pointer',
-                fontFamily: "'Courier New', monospace",
+                fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                 fontSize: '0.75rem',
                 transition: 'all 0.2s'
               }}
@@ -291,7 +291,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: validationErrors.awayTeam ? '1px solid #f00' : '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem'
                   }}
                 >
@@ -326,7 +326,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: validationErrors.homeTeam ? '1px solid #f00' : '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem'
                   }}
                 >
@@ -380,7 +380,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '2rem',
                     textAlign: 'center',
                     fontWeight: 'bold'
@@ -409,7 +409,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '2rem',
                     textAlign: 'center',
                     fontWeight: 'bold'
@@ -453,7 +453,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem'
                   }}
                 >
@@ -486,7 +486,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: validationErrors.distance ? '1px solid #f00' : '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem'
                   }}
                 />
@@ -519,7 +519,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem'
                   }}
                 />
@@ -547,7 +547,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     cursor: 'pointer',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem',
                     fontWeight: 'bold'
                   }}
@@ -564,7 +564,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     cursor: 'pointer',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem',
                     fontWeight: 'bold'
                   }}
@@ -609,7 +609,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem'
                   }}
                 >
@@ -642,7 +642,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem'
                   }}
                 />
@@ -670,7 +670,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem'
                   }}
                 />
@@ -690,7 +690,7 @@ export default function EPACalculator({ onNavigate }) {
                   color: '#0f0',
                   border: '1px solid #333',
                   padding: '0.5rem',
-                  fontFamily: "'Courier New', monospace",
+                  fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                   fontSize: '0.875rem',
                   textAlign: 'center',
                   fontWeight: 'bold'
@@ -726,7 +726,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem'
                   }}
                 >
@@ -756,7 +756,7 @@ export default function EPACalculator({ onNavigate }) {
                     border: '1px solid #4a9eff',
                     padding: '0.5rem',
                     width: '100%',
-                    fontFamily: "'Courier New', monospace",
+                    fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
                     fontSize: '0.875rem'
                   }}
                 >
@@ -779,7 +779,7 @@ export default function EPACalculator({ onNavigate }) {
               border: '1px solid #4a9eff',
               padding: '1rem',
               cursor: (loading || Object.keys(validationErrors).length > 0) ? 'not-allowed' : 'pointer',
-              fontFamily: "'Courier New', monospace",
+              fontFamily: "'All-ProSans', -apple-system, BlinkMacSystemFont, sans-serif",
               fontSize: '1rem',
               fontWeight: 'bold',
               textTransform: 'uppercase',

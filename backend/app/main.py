@@ -13,11 +13,18 @@ import numpy as np
 import json
 from pathlib import Path
 from datetime import datetime
+import logging
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 # NGS Database imports
 from .database import init_db, SessionLocal, NGSPassing, SeasonalStats
 from .ngs_endpoints import router as ngs_router
 from .ngs_scraper import NGSDataImporter
+
+logger = logging.getLogger(__name__)
+scheduler = BackgroundScheduler(timezone="America/New_York")
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -33,6 +40,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # Local development
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
+        "http://localhost:3004",
+        "http://localhost:3005",
         "https://nfl-epa-calculator.vercel.app",  # Production
         "https://*.vercel.app"  # Vercel preview deployments
     ],
@@ -195,6 +207,7 @@ class HealthResponse(BaseModel):
     epa_model_info: Optional[dict]
     win_prob_model_info: Optional[dict]
     ngs_stats: Optional[dict]
+    scheduler: Optional[dict]
     timestamp: str
 
 
@@ -242,9 +255,74 @@ async def load_models():
         init_db()
         print("✓ NGS database initialized")
 
+        # Start daily data refresh scheduler
+        _start_scheduler()
+        print("✓ Daily refresh scheduler started")
+
     except Exception as e:
         print(f"✗ Error loading models: {e}")
         raise
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+        print("✓ Scheduler stopped")
+
+
+def _is_nfl_season(dt: datetime) -> bool:
+    """Return True if dt falls within the NFL regular+postseason window.
+    Regular season: early Sep → mid-Jan (weeks 1-18 + playoffs + Super Bowl)
+    Off-season: mid-Feb → Aug — skip refreshes.
+    """
+    month = dt.month
+    # Sep (9) through Jan (1) and up to Feb 15
+    if month in (9, 10, 11, 12, 1):
+        return True
+    if month == 2 and dt.day <= 15:
+        return True
+    return False
+
+
+def _daily_refresh():
+    """Run every day during NFL season; skips off-season to avoid unnecessary load."""
+    now = datetime.now()
+    if not _is_nfl_season(now):
+        logger.info(f"Off-season ({now.strftime('%b %d')}) — skipping daily refresh")
+        return
+
+    logger.info(f"Starting scheduled daily refresh ({now.strftime('%Y-%m-%d %H:%M')})")
+    db = SessionLocal()
+    try:
+        importer = NGSDataImporter(db)
+        # Use incremental (current season only) for daily updates
+        results = importer.incremental_refresh()
+        passed = [k for k, v in results.items() if isinstance(v, dict) and v.get('status') == 'success']
+        failed = [k for k, v in results.items() if isinstance(v, dict) and v.get('status') != 'success']
+        logger.info(f"Daily refresh complete — ok: {passed}, failed: {failed}")
+        print(f"[scheduler] Daily refresh done: ok={passed} failed={failed}")
+    except Exception as e:
+        logger.error(f"Daily refresh failed: {e}")
+        print(f"[scheduler] Daily refresh ERROR: {e}")
+    finally:
+        db.close()
+
+
+def _start_scheduler():
+    """Register the daily refresh cron and start the scheduler."""
+    # Run at 6:00 AM ET every day
+    scheduler.add_job(
+        _daily_refresh,
+        trigger=CronTrigger(hour=6, minute=0),
+        id="daily_nfl_refresh",
+        name="Daily NFL data refresh",
+        replace_existing=True,
+        misfire_grace_time=3600,  # Allow up to 1h late if server was down
+    )
+    scheduler.start()
+    next_run = scheduler.get_job("daily_nfl_refresh").next_run_time
+    print(f"  Next scheduled refresh: {next_run.strftime('%Y-%m-%d %H:%M %Z') if next_run else 'N/A'}")
 
 
 # API Endpoints
@@ -300,6 +378,12 @@ async def health_check():
             "performance": win_prob_metadata.get("performance")
         } if win_prob_metadata else None,
         "ngs_stats": ngs_health,
+        "scheduler": {
+            "running": scheduler.running,
+            "in_season": _is_nfl_season(datetime.now()),
+            "next_refresh": scheduler.get_job("daily_nfl_refresh").next_run_time.isoformat()
+                if scheduler.running and scheduler.get_job("daily_nfl_refresh") else None,
+        },
         "timestamp": datetime.utcnow().isoformat()
     }
 

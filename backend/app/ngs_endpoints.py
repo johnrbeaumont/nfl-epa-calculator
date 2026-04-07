@@ -3,7 +3,7 @@ FastAPI endpoints for NFL Next Gen Stats data
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
 
 from sqlalchemy import and_
@@ -11,6 +11,30 @@ from .database import get_db, NGSPassing, NGSReceiving, NGSRushing, NGSDefense, 
 from .ngs_scraper import NGSDataImporter
 
 router = APIRouter(prefix="/api/ngs", tags=["Next Gen Stats"])
+
+# In-memory headshot cache: gsis_id -> headshot_url
+_headshot_cache: Optional[Dict[str, str]] = None
+
+
+def _load_headshots() -> Dict[str, str]:
+    global _headshot_cache
+    if _headshot_cache is not None:
+        return _headshot_cache
+    try:
+        import nfl_data_py as nfl
+        import warnings
+        warnings.filterwarnings('ignore')
+        df = nfl.import_players()
+        cache = {}
+        for _, row in df[['gsis_id', 'headshot']].dropna(subset=['gsis_id', 'headshot']).iterrows():
+            gsis = str(row['gsis_id']).strip()
+            url = str(row['headshot']).strip()
+            if gsis and url and url.startswith('http'):
+                cache[gsis] = url
+        _headshot_cache = cache
+    except Exception:
+        _headshot_cache = {}
+    return _headshot_cache
 
 
 # Response Models
@@ -176,6 +200,9 @@ class DefenseStatsResponse(BaseModel):
     # Advanced metrics
     avg_time_to_pressure: Optional[float] = None
     passer_rating_allowed: Optional[float] = None
+
+    # Turnover metrics
+    forced_fumbles: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -402,39 +429,57 @@ def get_rushing_stats(
     return rows
 
 
+DEFENSE_POS_GROUPS = {
+    'DL': ['DE', 'DT', 'NT', 'RDE', 'LDE', 'LE', 'RE', 'DL'],
+    'LB': ['LB', 'MLB', 'ILB', 'OLB', 'LOLB', 'ROLB', 'SLB', 'WLB'],
+    'DB': ['CB', 'S', 'SS', 'FS', 'DB', 'SAF', 'NCB', 'RCB', 'LCB'],
+}
+
+
 @router.get("/defense", response_model=List[DefenseStatsResponse])
 def get_defense_stats(
     season: int = Query(..., description="Season year", ge=2016),
     week: Optional[int] = Query(None, description="Week number", ge=0),
     player: Optional[str] = Query(None, description="Player name (partial match)"),
     team: Optional[str] = Query(None, description="Team abbreviation"),
-    position: Optional[str] = Query(None, description="Position (DL, LB, DB)"),
+    position: Optional[str] = Query(None, description="Position group: DL, LB, or DB"),
     min_tackles: Optional[int] = Query(None, description="Minimum tackles", ge=0),
     limit: int = Query(100, description="Maximum results to return", ge=1, le=500),
     db: Session = Depends(get_db)
 ):
     """
-    Get NGS defensive stats with filters
+    Get defensive player stats aggregated from play-by-play data.
 
     Examples:
-    - `/api/ngs/defense?season=2024&week=0` - Season aggregates
-    - `/api/ngs/defense?season=2024&player=Parsons` - Micah Parsons stats
-    - `/api/ngs/defense?season=2024&position=DL&min_tackles=30` - DL with 30+ tackles
+    - `/api/ngs/defense?season=2024&week=0` - All defenders season aggregates
+    - `/api/ngs/defense?season=2024&position=DL` - D-line leaders
+    - `/api/ngs/defense?season=2024&position=DB&min_tackles=20` - DBs with 20+ tackles
     """
     query = db.query(NGSDefense).filter(NGSDefense.season == season)
 
     if week is not None:
         query = query.filter(NGSDefense.week == week)
+    else:
+        query = query.filter(NGSDefense.week == 0)  # default to season aggregates
+
     if player:
         query = query.filter(NGSDefense.player_display_name.ilike(f"%{player}%"))
     if team:
         query = query.filter(NGSDefense.team_abbr == team.upper())
     if position:
-        query = query.filter(NGSDefense.player_position == position.upper())
+        pos_upper = position.upper()
+        pos_list = DEFENSE_POS_GROUPS.get(pos_upper, [pos_upper])
+        query = query.filter(NGSDefense.player_position.in_(pos_list))
     if min_tackles:
         query = query.filter(NGSDefense.tackles >= min_tackles)
 
-    query = query.order_by(NGSDefense.tackles.desc())
+    # Sort: DL by sacks, DB by interceptions+PBU, LB by tackles
+    if position and position.upper() == 'DL':
+        query = query.order_by(NGSDefense.sacks.desc().nullslast(), NGSDefense.tackles.desc().nullslast())
+    elif position and position.upper() == 'DB':
+        query = query.order_by(NGSDefense.interceptions.desc().nullslast(), NGSDefense.pass_breakups.desc().nullslast())
+    else:
+        query = query.order_by(NGSDefense.tackles.desc().nullslast())
 
     results = query.limit(limit).all()
 
@@ -644,8 +689,10 @@ def get_refresh_history(
 
 @router.post("/refresh", response_model=RefreshResponse)
 def trigger_refresh(
-    mode: str = Query("incremental", pattern="^(incremental|full)$", description="Refresh mode"),
-    season: Optional[int] = Query(None, description="Specific season for incremental refresh"),
+    mode: str = Query("incremental", pattern="^(incremental|full|defense)$", description="Refresh mode"),
+    season: Optional[int] = Query(None, description="Specific season for incremental/defense refresh"),
+    start_season: Optional[int] = Query(None, description="Start season for full/defense refresh", ge=2016),
+    end_season: Optional[int] = Query(None, description="End season for full/defense refresh"),
     db: Session = Depends(get_db)
 ):
     """
@@ -653,14 +700,28 @@ def trigger_refresh(
 
     - `mode=incremental` - Update current season only (default)
     - `mode=full` - Update all years from 2016 to present
+    - `mode=defense` - Update only defensive stats (PBP aggregation)
 
-    Note: Full refresh can take 1-2 minutes
+    Note: Full refresh can take several minutes
     """
     try:
         importer = NGSDataImporter(db)
 
         if mode == "full":
-            results = importer.full_refresh()
+            s = start_season or 2016
+            e = end_season or None
+            results = importer.full_refresh(start_year=s, end_year=e)
+        elif mode == "defense":
+            from datetime import datetime as dt
+            if season:
+                years = [season]
+            elif start_season:
+                e = end_season or dt.now().year
+                years = list(range(start_season, e + 1))
+            else:
+                years = [dt.now().year]
+            result = importer.import_defense_from_pbp(years, mode='upsert')
+            results = {'defense': result}
         else:
             results = importer.incremental_refresh(season=season)
 
@@ -668,3 +729,9 @@ def trigger_refresh(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Refresh failed: {str(e)}")
+
+
+@router.get("/headshots", response_model=Dict[str, str])
+def get_headshots():
+    """Return a dict of player_gsis_id -> headshot_url for all known players."""
+    return _load_headshots()
