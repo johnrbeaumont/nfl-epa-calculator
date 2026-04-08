@@ -685,6 +685,202 @@ def get_team_stats(
     }
 
 
+@router.get("/game-summary/{game_id}")
+def get_game_summary(
+    game_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Return a full game box score + WP chart data computed from play-by-play.
+    Includes passing, rushing, receiving lines for each player in the game,
+    plus play-by-play WP data for charting.
+    """
+    from sqlalchemy import func as sqlfunc
+    import re
+
+    plays = db.query(Plays).filter(Plays.game_id == game_id).order_by(
+        Plays.qtr, Plays.quarter_seconds_remaining.desc()
+    ).all()
+
+    if not plays:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"No plays found for game_id={game_id}")
+
+    # Meta
+    first = plays[0]
+    home_team = first.home_team
+    away_team = first.away_team
+    # Final score: max scores
+    home_score = max((p.home_score or 0 for p in plays), default=0)
+    away_score = max((p.away_score or 0 for p in plays), default=0)
+
+    # WP chart: one point per play with computed time remaining and home_wp
+    wp_data = []
+    for p in plays:
+        if p.game_seconds_remaining is None:
+            continue
+        home_wp_val = p.home_wp
+        # If home_wp not stored, skip (will be populated after re-download)
+        if home_wp_val is None:
+            continue
+        wp_data.append({
+            "game_seconds_remaining": p.game_seconds_remaining,
+            "qtr": p.qtr,
+            "home_wp": round(float(home_wp_val) * 100, 1),
+            "away_wp": round((1 - float(home_wp_val)) * 100, 1),
+            "desc": (p.desc or '')[:80],
+        })
+
+    def compute_passer_rating(att, cmp, yds, tds, ints):
+        if not att: return None
+        a = min(max(((cmp / att) - 0.3) * 5, 0), 2.375)
+        b = min(max(((yds / att) - 3) * 0.25, 0), 2.375)
+        c = min(max((tds / att) * 20, 0), 2.375)
+        d = min(max(2.375 - ((ints / att) * 25), 0), 2.375)
+        return round(((a + b + c + d) / 6) * 100, 1)
+
+    # Passing box score per team
+    def passing_lines(team):
+        passers = {}
+        for p in plays:
+            if p.posteam != team or not p.passer_player_name:
+                continue
+            name = p.passer_player_name
+            if name not in passers:
+                passers[name] = {'name': name, 'att': 0, 'cmp': 0, 'yds': 0, 'tds': 0, 'ints': 0, 'air': 0}
+            r = passers[name]
+            if p.pass_attempt == 1:
+                r['att'] += 1
+                if p.complete_pass == 1:
+                    r['cmp'] += 1
+                    r['yds'] += (p.yards_gained or 0)
+                    if p.air_yards is not None:
+                        r['air'] += p.air_yards
+            if p.touchdown == 1 and p.pass_attempt == 1:
+                r['tds'] += 1
+            if p.interception == 1:
+                r['ints'] += 1
+        lines = []
+        for r in passers.values():
+            ypa = round(r['yds'] / r['att'], 1) if r['att'] else 0
+            rating = compute_passer_rating(r['att'], r['cmp'], r['yds'], r['tds'], r['ints'])
+            lines.append({
+                'name': r['name'],
+                'cp_att': f"{r['cmp']}/{r['att']}",
+                'yds': r['yds'],
+                'td_int': f"{r['tds']}-{r['ints']}",
+                'cmp_pct': round(r['cmp'] / r['att'] * 100, 1) if r['att'] else 0,
+                'rating': rating,
+                'yds_att': ypa,
+            })
+        return sorted(lines, key=lambda x: x['yds'], reverse=True)
+
+    def rushing_lines(team):
+        rushers = {}
+        for p in plays:
+            if p.posteam != team or not p.rusher_player_name:
+                continue
+            name = p.rusher_player_name
+            if name not in rushers:
+                rushers[name] = {'name': name, 'pos': 'RB', 'att': 0, 'yds': 0, 'tds': 0, 'long': 0}
+            r = rushers[name]
+            if p.rush_attempt == 1:
+                r['att'] += 1
+                gained = p.yards_gained or 0
+                r['yds'] += gained
+                if gained > r['long']:
+                    r['long'] = gained
+            if p.touchdown == 1 and p.rush_attempt == 1:
+                r['tds'] += 1
+        lines = []
+        for r in rushers.values():
+            ypc = round(r['yds'] / r['att'], 1) if r['att'] else 0
+            lines.append({
+                'name': r['name'],
+                'pos': r['pos'],
+                'att': r['att'],
+                'yds': r['yds'],
+                'tds': r['tds'],
+                'ypc': ypc,
+                'long': r['long'],
+            })
+        return sorted(lines, key=lambda x: x['yds'], reverse=True)
+
+    def receiving_lines(team):
+        receivers = {}
+        for p in plays:
+            if p.posteam != team or not p.receiver_player_name:
+                continue
+            if p.pass_attempt != 1:
+                continue
+            name = p.receiver_player_name
+            if name not in receivers:
+                receivers[name] = {'name': name, 'pos': 'WR', 'tgt': 0, 'rec': 0, 'yds': 0, 'tds': 0, 'long': 0, 'yac': 0.0}
+            r = receivers[name]
+            r['tgt'] += 1
+            if p.complete_pass == 1:
+                r['rec'] += 1
+                gained = p.yards_gained or 0
+                r['yds'] += gained
+                if gained > r['long']:
+                    r['long'] = gained
+                if p.yards_after_catch:
+                    r['yac'] += p.yards_after_catch
+            if p.touchdown == 1:
+                r['tds'] += 1
+        lines = []
+        for r in receivers.values():
+            ypr = round(r['yds'] / r['rec'], 1) if r['rec'] else 0
+            avg_yac = round(r['yac'] / r['rec'], 1) if r['rec'] else 0
+            lines.append({
+                'name': r['name'],
+                'pos': r['pos'],
+                'tgt': r['tgt'],
+                'rec': r['rec'],
+                'yds': r['yds'],
+                'tds': r['tds'],
+                'yds_rec': ypr,
+                'long': r['long'],
+                'yac': avg_yac,
+            })
+        return sorted(lines, key=lambda x: x['yds'], reverse=True)
+
+    # Last 5 plays
+    last_plays = []
+    for p in reversed(plays[-8:]):
+        if not p.desc:
+            continue
+        last_plays.append({
+            'team': p.posteam,
+            'qtr': p.qtr,
+            'down': p.down,
+            'ydstogo': p.ydstogo,
+            'desc': p.desc,
+        })
+    last_plays = last_plays[:5]
+
+    return {
+        'game_id': game_id,
+        'home_team': home_team,
+        'away_team': away_team,
+        'home_score': home_score,
+        'away_score': away_score,
+        'total_plays': len(plays),
+        'wp_chart': wp_data,
+        'home': {
+            'passing': passing_lines(home_team),
+            'rushing': rushing_lines(home_team),
+            'receiving': receiving_lines(home_team),
+        },
+        'away': {
+            'passing': passing_lines(away_team),
+            'rushing': rushing_lines(away_team),
+            'receiving': receiving_lines(away_team),
+        },
+        'last_plays': last_plays,
+    }
+
+
 class PlayResponse(BaseModel):
     play_id: Optional[int] = None
     game_id: Optional[str] = None
@@ -740,6 +936,215 @@ class PlayResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+@router.get("/league-team-stats")
+def get_league_team_stats(
+    season: int = Query(..., description="Season year (e.g., 2024)", ge=2016),
+    side: str = Query("offense", description="'offense' or 'defense'"),
+    week: int = Query(0, description="Week (0 = season aggregate)", ge=0),
+    db: Session = Depends(get_db),
+):
+    """
+    Return aggregated stats for all 32 teams, ranked for leaderboard display.
+    side=offense returns passing + rushing + receiving aggregates.
+    side=defense returns defensive aggregates (allowed stats where available).
+    """
+    from sqlalchemy import func
+
+    NFL_TEAMS = [
+        'ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE',
+        'DAL', 'DEN', 'DET', 'GB', 'HOU', 'IND', 'JAX', 'KC',
+        'LAC', 'LAR', 'LV', 'MIA', 'MIN', 'NE', 'NO', 'NYG',
+        'NYJ', 'PHI', 'PIT', 'SEA', 'SF', 'TB', 'TEN', 'WAS',
+    ]
+
+    def round_or_none(val, places=1):
+        return round(float(val), places) if val is not None else None
+
+    if side == "offense":
+        # ── Passing ──────────────────────────────────────────────────────────
+        pass_rows = db.query(
+            NGSPassing.team_abbr,
+            func.sum(NGSPassing.attempts).label('pass_att'),
+            func.sum(NGSPassing.completions).label('completions'),
+            func.sum(NGSPassing.pass_yards).label('pass_yards'),
+            func.sum(NGSPassing.pass_touchdowns).label('pass_tds'),
+            func.sum(NGSPassing.interceptions).label('ints'),
+            func.avg(NGSPassing.avg_time_to_throw).label('ttt'),
+            func.avg(NGSPassing.completion_percentage_above_expectation).label('cpoe'),
+            func.avg(NGSPassing.aggressiveness).label('aggr'),
+            func.avg(NGSPassing.avg_intended_air_yards).label('iay'),
+            func.avg(NGSPassing.avg_completed_air_yards).label('cay'),
+        ).filter(
+            NGSPassing.season == season,
+            NGSPassing.week == week,
+        ).group_by(NGSPassing.team_abbr).all()
+
+        pass_map = {r.team_abbr: r for r in pass_rows}
+
+        # ── Rushing ──────────────────────────────────────────────────────────
+        rush_rows = db.query(
+            NGSRushing.team_abbr,
+            func.sum(NGSRushing.rush_attempts).label('rush_att'),
+            func.sum(NGSRushing.rush_yards).label('rush_yards'),
+            func.sum(NGSRushing.rush_touchdowns).label('rush_tds'),
+            func.avg(NGSRushing.avg_rush_yards).label('ypc'),
+            func.avg(NGSRushing.efficiency).label('eff'),
+            func.sum(NGSRushing.rush_yards_over_expected).label('ryoe'),
+            func.avg(NGSRushing.rush_yards_over_expected_per_att).label('ryoe_per_att'),
+            func.avg(NGSRushing.percent_attempts_gte_eight_defenders).label('stacked_pct'),
+            func.avg(NGSRushing.avg_time_to_los).label('ttlos'),
+        ).filter(
+            NGSRushing.season == season,
+            NGSRushing.week == week,
+        ).group_by(NGSRushing.team_abbr).all()
+
+        rush_map = {r.team_abbr: r for r in rush_rows}
+
+        # ── Receiving ────────────────────────────────────────────────────────
+        rec_rows = db.query(
+            NGSReceiving.team_abbr,
+            func.avg(NGSReceiving.avg_separation).label('avg_sep'),
+            func.avg(NGSReceiving.avg_yac).label('avg_yac'),
+            func.avg(NGSReceiving.avg_yac_above_expectation).label('yac_plus'),
+            func.avg(NGSReceiving.avg_intended_air_yards).label('adot'),
+        ).filter(
+            NGSReceiving.season == season,
+            NGSReceiving.week == week,
+        ).group_by(NGSReceiving.team_abbr).all()
+
+        rec_map = {r.team_abbr: r for r in rec_rows}
+
+        results = []
+        for team in NFL_TEAMS:
+            p = pass_map.get(team)
+            r = rush_map.get(team)
+            rec = rec_map.get(team)
+            if p is None and r is None:
+                continue
+
+            pass_att = int(p.pass_att or 0) if p else 0
+            rush_att = int(r.rush_att or 0) if r else 0
+            total_plays = pass_att + rush_att
+            pass_pct = round(pass_att / total_plays * 100, 1) if total_plays else None
+
+            pass_yards = int(p.pass_yards or 0) if p else 0
+            rush_yards = int(r.rush_yards or 0) if r else 0
+            total_yards = pass_yards + rush_yards
+            pass_tds = int(p.pass_tds or 0) if p else 0
+            rush_tds = int(r.rush_tds or 0) if r else 0
+            total_tds = pass_tds + rush_tds
+
+            completions = int(p.completions or 0) if p else 0
+            comp_pct = round(completions / pass_att * 100, 1) if pass_att else None
+
+            results.append({
+                "team": team,
+                "season": season,
+                # Plays
+                "total_plays": total_plays,
+                "pass_plays": pass_att,
+                "rush_plays": rush_att,
+                "pass_pct": pass_pct,
+                # Scoring (requires PBP)
+                "ppg": None,
+                "ypg": round(total_yards / 17, 1) if total_yards else None,
+                "ypp": round(total_yards / total_plays, 1) if total_plays else None,
+                "total_tds": total_tds,
+                # EPA (requires PBP)
+                "epa_per_play": None,
+                "epa_per_pass": None,
+                "epa_per_rush": None,
+                # Passing stats
+                "completions": completions,
+                "pass_att": pass_att,
+                "comp_pct": comp_pct,
+                "pass_yards": pass_yards,
+                "pass_ypg": round(pass_yards / 17, 1) if pass_yards else None,
+                "pass_ypp": round(pass_yards / pass_att, 1) if pass_att else None,
+                "pass_tds": pass_tds,
+                "interceptions": int(p.ints or 0) if p else None,
+                "ttt": round_or_none(p.ttt, 2) if p else None,
+                "cpoe": round_or_none(p.cpoe, 1) if p else None,
+                "aggr": round_or_none(p.aggr, 1) if p else None,
+                "iay": round_or_none(p.iay, 1) if p else None,
+                # Rushing stats
+                "rush_att": rush_att,
+                "rush_yards": rush_yards,
+                "rush_ypg": round(rush_yards / 17, 1) if rush_yards else None,
+                "rush_ypp": round_or_none(r.ypc, 1) if r else None,
+                "rush_tds": rush_tds,
+                "eff": round_or_none(r.eff, 2) if r else None,
+                "ryoe": round(float(r.ryoe), 0) if r and r.ryoe else None,
+                "ryoe_per_att": round_or_none(r.ryoe_per_att, 2) if r else None,
+                "stacked_pct": round_or_none(r.stacked_pct, 1) if r else None,
+                "ttlos": round_or_none(r.ttlos, 2) if r else None,
+                # Receiving
+                "avg_sep": round_or_none(rec.avg_sep, 1) if rec else None,
+                "avg_yac": round_or_none(rec.avg_yac, 1) if rec else None,
+                "yac_plus": round_or_none(rec.yac_plus, 2) if rec else None,
+                "adot": round_or_none(rec.adot, 1) if rec else None,
+            })
+
+        # Sort by total yards desc by default
+        results.sort(key=lambda x: x.get('total_yards') or 0, reverse=True)
+        return results
+
+    else:  # defense
+        # Aggregate defensive player stats by team
+        def_rows = db.query(
+            NGSDefense.team_abbr,
+            func.sum(NGSDefense.sacks).label('sacks'),
+            func.sum(NGSDefense.qb_hits).label('qb_hits'),
+            func.sum(NGSDefense.pressures).label('pressures'),
+            func.sum(NGSDefense.tackles_combined).label('tackles'),
+            func.sum(NGSDefense.tackles_for_loss).label('tfl'),
+            func.sum(NGSDefense.interceptions).label('ints'),
+            func.sum(NGSDefense.pass_breakups).label('pbu'),
+            func.sum(NGSDefense.forced_fumbles).label('ff'),
+            func.avg(NGSDefense.passer_rating_allowed).label('pr_allowed'),
+            func.avg(NGSDefense.avg_time_to_pressure).label('ttp'),
+        ).filter(
+            NGSDefense.season == season,
+            NGSDefense.week == week,
+        ).group_by(NGSDefense.team_abbr).all()
+
+        def_map = {r.team_abbr: r for r in def_rows}
+
+        results = []
+        for team in NFL_TEAMS:
+            d = def_map.get(team)
+            if d is None:
+                continue
+            sacks = float(d.sacks or 0)
+            pressures = int(d.pressures or 0)
+            results.append({
+                "team": team,
+                "season": season,
+                "sacks": round(sacks, 1),
+                "sack_pct": None,
+                "qb_hits": int(d.qb_hits or 0),
+                "pressures": pressures,
+                "pressure_pct": None,
+                "tackles": int(d.tackles or 0),
+                "tfl": int(d.tfl or 0),
+                "interceptions": int(d.ints or 0),
+                "pass_breakups": int(d.pbu or 0),
+                "forced_fumbles": int(d.ff or 0),
+                "passer_rating_allowed": round_or_none(d.pr_allowed, 1),
+                "ttp": round_or_none(d.ttp, 2),
+                # These require PBP data
+                "pass_yards_allowed": None,
+                "rush_yards_allowed": None,
+                "pass_ypg_allowed": None,
+                "rush_ypg_allowed": None,
+                "epa_per_pass_allowed": None,
+                "epa_per_rush_allowed": None,
+            })
+
+        results.sort(key=lambda x: x.get('sacks') or 0, reverse=True)
+        return results
 
 
 @router.get("/plays", response_model=List[PlayResponse])

@@ -432,6 +432,10 @@ class Plays(Base):
     wpa = Column(Float)
     cpoe = Column(Float)
 
+    # Win probability
+    home_wp = Column(Float)   # home team win probability before this play (0-1)
+    away_wp = Column(Float)
+
     # Defensive formation
     number_of_pass_rushers = Column(Integer)
     defenders_in_box = Column(Integer)

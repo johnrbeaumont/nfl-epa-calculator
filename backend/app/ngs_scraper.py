@@ -646,7 +646,7 @@ class NGSDataImporter:
         'desc', 'yards_gained', 'touchdown', 'first_down',
         'pass_attempt', 'complete_pass', 'incomplete_pass',
         'air_yards', 'yards_after_catch', 'pass_length', 'pass_location',
-        'no_huddle', 'shotgun', 'play_action',
+        'no_huddle', 'shotgun',
         'sack', 'qb_hit', 'qb_scramble', 'interception',
         'rush_attempt',
         'fumble', 'fumble_lost', 'penalty', 'penalty_yards',
@@ -654,7 +654,7 @@ class NGSDataImporter:
         'receiver_player_id', 'receiver_player_name',
         'rusher_player_id', 'rusher_player_name',
         'epa', 'wpa', 'cpoe',
-        'number_of_pass_rushers', 'defenders_in_box',
+        'home_wp', 'away_wp',
     ]
 
     def import_plays(self, years: List[int], mode: Literal['replace', 'upsert'] = 'upsert') -> Dict:
@@ -771,14 +771,17 @@ class NGSDataImporter:
 
         # Group by season/week/player
         grp_cols = ['season', 'week', 'passer_player_id', 'game_id', 'posteam']
-        agg = db_plays.groupby(grp_cols).agg(
-            dropbacks=('pass_attempt', 'size'),
-            deep_attempts=('air_yards', lambda x: (x.fillna(0) >= 20).sum()),
-            total_attempts=('pass_attempt', lambda x: x.fillna(0).astype(int).sum()),
-            qb_hits=('qb_hit', lambda x: x.fillna(0).astype(int).sum()),
-            play_action_plays=('play_action', lambda x: x.fillna(0).astype(int).sum()),
-            blitz_plays=('number_of_pass_rushers', lambda x: (x.fillna(0).astype(int) >= 5).sum()),
-        ).reset_index()
+        agg_dict = {
+            'dropbacks': ('pass_attempt', 'size'),
+            'deep_attempts': ('air_yards', lambda x: (x.fillna(0) >= 20).sum()),
+            'total_attempts': ('pass_attempt', lambda x: x.fillna(0).astype(int).sum()),
+            'qb_hits': ('qb_hit', lambda x: x.fillna(0).astype(int).sum()),
+        }
+        if 'play_action' in db_plays.columns:
+            agg_dict['play_action_plays'] = ('play_action', lambda x: x.fillna(0).astype(int).sum())
+        if 'number_of_pass_rushers' in db_plays.columns:
+            agg_dict['blitz_plays'] = ('number_of_pass_rushers', lambda x: (x.fillna(0).astype(int) >= 5).sum())
+        agg = db_plays.groupby(grp_cols).agg(**agg_dict).reset_index()
 
         updated = 0
         for _, row in agg.iterrows():
@@ -811,8 +814,8 @@ class NGSDataImporter:
             # percentage stats
             deep_pct = (row['deep_attempts'] / n_dropbacks * 100) if n_dropbacks > 0 else None
             qb_hit_pct = (row['qb_hits'] / n_dropbacks * 100) if n_dropbacks > 0 else None
-            pa_pct = (row['play_action_plays'] / n_dropbacks * 100) if n_dropbacks > 0 else None
-            blitz_pct = (row['blitz_plays'] / n_dropbacks * 100) if n_dropbacks > 0 else None
+            pa_pct = (row['play_action_plays'] / n_dropbacks * 100) if ('play_action_plays' in row and n_dropbacks > 0) else None
+            blitz_pct = (row['blitz_plays'] / n_dropbacks * 100) if ('blitz_plays' in row and n_dropbacks > 0) else None
 
             # Update NGSPassing row
             ngs_row = self.db.query(NGSPassing).filter(

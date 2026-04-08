@@ -551,6 +551,21 @@ function NGSTerminal({ onNavigate }) {
   const [gamePlays, setGamePlays] = useState([])
   const [gamePlaysLoading, setGamePlaysLoading] = useState(false)
 
+  // League-wide team stats
+  const [teamsView, setTeamsView] = useState('league')         // 'league' | 'roster'
+  const [leagueSide, setLeagueSide] = useState('offense')      // 'offense' | 'defense'
+  const [leagueSubTab, setLeagueSubTab] = useState('summary')  // 'summary' | 'passing' | 'rushing'
+  const [leagueSeason, setLeagueSeason] = useState(2024)
+  const [leagueStats, setLeagueStats] = useState([])
+  const [leagueLoading, setLeagueLoading] = useState(false)
+  const [leagueSort, setLeagueSort] = useState({ key: null, desc: true })
+
+  // Game summary modal (replaces PBP modal on game click)
+  const [gameSummary, setGameSummary] = useState(null)
+  const [gameSummaryLoading, setGameSummaryLoading] = useState(false)
+  const [gameSummaryTeam, setGameSummaryTeam] = useState('home') // 'home'|'away' for mobile toggle
+  const [gameSummaryTab, setGameSummaryTab] = useState({ home: 'offense', away: 'offense' })
+
   // Player headshot map: gsis_id -> url
   const [headshots, setHeadshots] = useState({})
 
@@ -573,10 +588,11 @@ function NGSTerminal({ onNavigate }) {
   }, [selectedPositions, selectedSeasons, selectedTeam, activeTab, viewMode])
 
   useEffect(() => {
-    if (activeTab === 'TEAMS' && selectedTeamForRoster) {
-      fetchTeamRoster(selectedTeamForRoster, teamRosterSeason)
+    if (activeTab === 'TEAMS') {
+      if (teamsView === 'league') fetchLeagueStats()
+      else if (selectedTeamForRoster) fetchTeamRoster(selectedTeamForRoster, teamRosterSeason)
     }
-  }, [selectedTeamForRoster, teamRosterSeason, activeTab])
+  }, [selectedTeamForRoster, teamRosterSeason, activeTab, teamsView, leagueSide, leagueSeason])
 
   const fetchPlayerData = async () => {
     setLoading(true)
@@ -756,6 +772,35 @@ function NGSTerminal({ onNavigate }) {
       setGamePlays([])
     } finally {
       setGamePlaysLoading(false)
+    }
+  }
+
+  const fetchLeagueStats = async () => {
+    setLeagueLoading(true)
+    setLeagueStats([])
+    try {
+      const res = await fetch(`${API_URL}/api/ngs/league-team-stats?season=${leagueSeason}&side=${leagueSide}&week=0`)
+      if (res.ok) setLeagueStats(await res.json())
+    } catch { /* silent */ } finally {
+      setLeagueLoading(false)
+    }
+  }
+
+  const fetchGameSummary = async (game_id) => {
+    if (!game_id) return
+    setGameSummaryLoading(true)
+    setGameSummary(null)
+    try {
+      const res = await fetch(`${API_URL}/api/ngs/game-summary/${encodeURIComponent(game_id)}`)
+      if (res.ok) {
+        const data = await res.json()
+        setGameSummary(data)
+        setGameSummaryTab({ home: 'offense', away: 'offense' })
+      }
+    } catch (err) {
+      setGameSummary(null)
+    } finally {
+      setGameSummaryLoading(false)
     }
   }
 
@@ -1569,7 +1614,7 @@ function NGSTerminal({ onNavigate }) {
                                       style={{ backgroundColor: rowBg, borderBottom: `1px solid ${C.border}`, cursor: hasPlays ? 'pointer' : 'default' }}
                                       onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
                                       onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
-                                      onClick={() => hasPlays && fetchGamePlays(game.game_id, selectedPlayer, `Wk ${game.week} vs ${game.opponent_team || '?'}`)}
+                                      onClick={() => hasPlays && fetchGameSummary(game.game_id)}
                                       title={hasPlays ? 'Click for play-by-play' : ''}
                                     >
                                       {/* Week */}
@@ -1664,337 +1709,656 @@ function NGSTerminal({ onNavigate }) {
 
         /* ── TEAMS TAB ──────────────────────────────────────────────────── */
         <div style={{ padding: '1.5rem 2rem' }}>
-          {!selectedTeamForRoster ? (
-            <div>
-              <div style={{ color: C.muted, fontSize: '0.875rem', marginBottom: '1.25rem' }}>
-                Select a team to view roster
+
+          {/* ── View toggle: LEAGUE STATS | TEAM ROSTER ── */}
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+            {[{ id: 'league', label: 'LEAGUE STATS' }, { id: 'roster', label: 'TEAM ROSTER' }].map(v => (
+              <button
+                key={v.id}
+                onClick={() => setTeamsView(v.id)}
+                style={{
+                  backgroundColor: teamsView === v.id ? C.gold : 'transparent',
+                  color: teamsView === v.id ? '#0f0f13' : C.muted,
+                  border: `1px solid ${teamsView === v.id ? C.gold : C.border}`,
+                  borderRadius: 6,
+                  padding: '0.45rem 1.1rem',
+                  cursor: 'pointer',
+                  fontFamily: C.font,
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  letterSpacing: '0.06em',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ══════════════════════════════════════════════════════════════
+              LEAGUE STATS VIEW
+          ══════════════════════════════════════════════════════════════ */}
+          {teamsView === 'league' && (() => {
+            // ── Column definitions ──────────────────────────────────────
+            const offSummaryCols = [
+              { key: 'total_plays', label: 'Plays', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'pass_plays', label: 'Pass', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'rush_plays', label: 'Rush', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'pass_pct', label: 'Pass%', fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'ypg', label: 'YPG', fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'ypp', label: 'YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'total_tds', label: 'TDs', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'pass_ypg', label: 'Pass YPG', fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'pass_ypp', label: 'Pass YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'rush_ypg', label: 'Rush YPG', fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'rush_ypp', label: 'Rush YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'ttt', label: 'TTT', fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
+              { key: 'cpoe', label: 'CPOE', isEPA: true, isSigned: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(1) : '-' },
+            ]
+            const offPassingCols = [
+              { key: 'pass_plays', label: 'Att', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'completions', label: 'Cmp', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'comp_pct', label: 'Cmp%', fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'pass_ypg', label: 'YPG', sortDefault: true, fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'pass_ypp', label: 'YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'pass_tds', label: 'TD', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'interceptions', label: 'INT', fmt: v => v != null ? v : '-' },
+              { key: 'ttt', label: 'TTT', fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
+              { key: 'cpoe', label: 'CPOE', isEPA: true, isSigned: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(1) : '-' },
+              { key: 'aggr', label: 'Aggr%', fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'iay', label: 'IAY', fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'avg_yac', label: 'YAC', fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'yac_plus', label: 'YAC+', isEPA: true, isSigned: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '-' },
+              { key: 'avg_sep', label: 'Sep', fmt: v => v != null ? v.toFixed(2) : '-' },
+            ]
+            const offRushingCols = [
+              { key: 'rush_plays', label: 'Att', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: '_rush_pct', label: 'Rush%', fmt: (v, row) => row && row.pass_pct != null ? (100 - row.pass_pct).toFixed(1) + '%' : '-', computed: true },
+              { key: 'rush_ypg', label: 'YPG', sortDefault: true, fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'rush_ypp', label: 'YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'rush_tds', label: 'TD', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'eff', label: 'Eff', isEPA: true, fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'ryoe', label: 'RYOE', isEPA: true, isSigned: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + Math.round(v) : '-' },
+              { key: 'ryoe_per_att', label: 'YOE/A', isEPA: true, isSigned: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '-' },
+              { key: 'stacked_pct', label: 'Box%', fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'ttlos', label: 'TTLOS', fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
+            ]
+            const defSummaryCols = [
+              { key: 'sacks', label: 'Sacks', isBox: true, sortDefault: true, fmt: v => v != null ? v : '-' },
+              { key: 'qb_hits', label: 'QB Hits', fmt: v => v != null ? v : '-' },
+              { key: 'pressures', label: 'Press', fmt: v => v != null ? v : '-' },
+              { key: 'tfl', label: 'TFL', fmt: v => v != null ? v : '-' },
+              { key: 'interceptions', label: 'INT', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'pass_breakups', label: 'PBU', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'forced_fumbles', label: 'FF', fmt: v => v != null ? v : '-' },
+              { key: 'passer_rating_allowed', label: 'Psr Rtg Alw', fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'ttp', label: 'TTP', fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
+            ]
+            const defRushingCols = [
+              { key: 'tfl', label: 'TFL', fmt: v => v != null ? v : '-' },
+              { key: 'forced_fumbles', label: 'FF', fmt: v => v != null ? v : '-' },
+              { key: 'sacks', label: 'Sacks', isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'qb_hits', label: 'QB Hits', fmt: v => v != null ? v : '-' },
+            ]
+
+            // Pick active columns
+            let activeCols
+            if (leagueSide === 'offense') {
+              if (leagueSubTab === 'summary') activeCols = offSummaryCols
+              else if (leagueSubTab === 'passing') activeCols = offPassingCols
+              else activeCols = offRushingCols
+            } else {
+              if (leagueSubTab === 'rushing') activeCols = defRushingCols
+              else activeCols = defSummaryCols  // summary + passing both use same def cols
+            }
+
+            // Sort logic
+            const sortedStats = [...leagueStats].sort((a, b) => {
+              if (!leagueSort.key) {
+                // default: find sortDefault col
+                const defCol = activeCols.find(c => c.sortDefault)
+                if (defCol) {
+                  const av = a[defCol.key] ?? -Infinity
+                  const bv = b[defCol.key] ?? -Infinity
+                  return bv - av
+                }
+                return 0
+              }
+              const av = a[leagueSort.key] ?? -Infinity
+              const bv = b[leagueSort.key] ?? -Infinity
+              return leagueSort.desc ? bv - av : av - bv
+            })
+
+            const handleColSort = (key) => {
+              if (key === '_rush_pct') return  // computed, skip
+              setLeagueSort(prev => prev.key === key ? { key, desc: !prev.desc } : { key, desc: true })
+            }
+
+            const leagueTh = (col) => {
+              const isActive = leagueSort.key === col.key || (!leagueSort.key && col.sortDefault)
+              return (
+                <th
+                  key={col.key}
+                  onClick={() => handleColSort(col.key)}
+                  style={{
+                    ...thStyle,
+                    cursor: col.key === '_rush_pct' ? 'default' : 'pointer',
+                    color: isActive ? C.gold : C.muted,
+                    userSelect: 'none',
+                    whiteSpace: 'nowrap',
+                    padding: '0.6rem 0.55rem',
+                  }}
+                >
+                  {col.label}
+                  {col.key !== '_rush_pct' && (
+                    <span style={{ marginLeft: '0.25rem', opacity: isActive ? 1 : 0.3, fontSize: '0.65rem' }}>
+                      {isActive ? (leagueSort.key ? (leagueSort.desc ? '▼' : '▲') : '▼') : '⇅'}
+                    </span>
+                  )}
+                </th>
+              )
+            }
+
+            return (
+              <div>
+                {/* Controls row */}
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {/* Season selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ color: C.muted, fontSize: '0.75rem', ...filterLabelStyle }}>Season</span>
+                    <select
+                      value={leagueSeason}
+                      onChange={e => setLeagueSeason(Number(e.target.value))}
+                      style={{
+                        backgroundColor: C.surface,
+                        color: C.text,
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 5,
+                        padding: '0.3rem 0.6rem',
+                        fontFamily: C.font,
+                        fontSize: '0.78rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {ALL_SEASONS.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </div>
+
+                  {/* OFFENSE / DEFENSE toggle */}
+                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                    {[{ id: 'offense', label: 'OFFENSE' }, { id: 'defense', label: 'DEFENSE' }].map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => { setLeagueSide(s.id); setLeagueSubTab('summary'); setLeagueSort({ key: null, desc: true }) }}
+                        style={{
+                          backgroundColor: leagueSide === s.id ? C.gold : 'transparent',
+                          color: leagueSide === s.id ? '#0f0f13' : C.muted,
+                          border: `1px solid ${leagueSide === s.id ? C.gold : C.border}`,
+                          borderRadius: 5,
+                          padding: '0.35rem 0.85rem',
+                          cursor: 'pointer',
+                          fontFamily: C.font,
+                          fontSize: '0.75rem',
+                          fontWeight: '700',
+                          letterSpacing: '0.05em',
+                        }}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Sub-tabs */}
+                  <div style={{ display: 'flex', gap: '0.25rem' }}>
+                    {(leagueSide === 'offense'
+                      ? [{ id: 'summary', label: 'Summary' }, { id: 'passing', label: 'Passing' }, { id: 'rushing', label: 'Rushing' }]
+                      : [{ id: 'summary', label: 'Summary' }, { id: 'passing', label: 'Pass Defense' }, { id: 'rushing', label: 'Run Defense' }]
+                    ).map(st => (
+                      <button
+                        key={st.id}
+                        onClick={() => { setLeagueSubTab(st.id); setLeagueSort({ key: null, desc: true }) }}
+                        style={{
+                          backgroundColor: leagueSubTab === st.id ? C.surfaceHover : 'transparent',
+                          color: leagueSubTab === st.id ? C.text : C.muted,
+                          border: `1px solid ${leagueSubTab === st.id ? C.borderBright : C.border}`,
+                          borderRadius: 5,
+                          padding: '0.3rem 0.7rem',
+                          cursor: 'pointer',
+                          fontFamily: C.font,
+                          fontSize: '0.73rem',
+                          fontWeight: leagueSubTab === st.id ? '600' : '400',
+                        }}
+                      >
+                        {st.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Table */}
+                {leagueLoading ? (
+                  <div style={{ padding: '3rem', textAlign: 'center', color: C.muted, backgroundColor: C.surface, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                    Loading {leagueSeason} league stats…
+                  </div>
+                ) : leagueStats.length === 0 ? (
+                  <div style={{ padding: '3rem', textAlign: 'center', color: C.muted, backgroundColor: C.surface, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                    No data available
+                  </div>
+                ) : (
+                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', backgroundColor: C.surface }}>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: `2px solid ${C.border}` }}>
+                            <th style={{ ...thStyle, padding: '0.6rem 0.5rem', width: 36, minWidth: 36, textAlign: 'center' }}>Rk</th>
+                            <th style={{ ...thStyle, textAlign: 'left', padding: '0.6rem 0.75rem', minWidth: 120, position: 'sticky', left: 0, backgroundColor: C.surface, zIndex: 2 }}>Team</th>
+                            {activeCols.map(col => leagueTh(col))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedStats.map((row, i) => {
+                            const rowBg = i % 2 === 0 ? C.surface : '#131319'
+                            return (
+                              <tr
+                                key={row.team || i}
+                                style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg }}
+                                onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
+                                onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
+                              >
+                                {/* Rank */}
+                                <td style={{ padding: '0.55rem 0.5rem', textAlign: 'center', color: C.dim, fontFamily: C.fontStats, fontSize: '0.72rem' }}>
+                                  {String(i + 1).padStart(2, '0')}
+                                </td>
+                                {/* Team */}
+                                <td style={{ padding: '0.5rem 0.75rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, backgroundColor: rowBg, zIndex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                                    <TeamLogo abbr={row.team} size={24} />
+                                    <span style={{ color: C.text, fontWeight: '600', fontFamily: C.fontCond, fontSize: '0.82rem', letterSpacing: '0.02em' }}>{row.team}</span>
+                                  </div>
+                                </td>
+                                {/* Stat columns */}
+                                {activeCols.map(col => {
+                                  const rawVal = col.computed ? null : row[col.key]
+                                  const display = col.computed ? col.fmt(null, row) : col.fmt(rawVal)
+                                  const isBox = col.isBox && rawVal != null
+                                  let color = C.text
+                                  if (col.isEPA && rawVal != null) {
+                                    color = rawVal > 0 ? C.positive : rawVal < 0 ? C.negative : C.text
+                                  }
+                                  return (
+                                    <td key={col.key} style={{ padding: isBox ? '0.35rem 0.45rem' : '0.55rem 0.55rem', textAlign: 'right' }}>
+                                      {isBox ? (
+                                        <span style={{
+                                          display: 'inline-block',
+                                          backgroundColor: C.goldDim,
+                                          border: `1px solid ${C.goldBorder}`,
+                                          borderRadius: 3,
+                                          padding: '0.2rem 0.45rem',
+                                          color: C.text,
+                                          fontFamily: C.fontStats,
+                                          fontWeight: '700',
+                                          fontSize: '0.78rem',
+                                          minWidth: 30,
+                                          textAlign: 'center',
+                                        }}>
+                                          {display}
+                                        </span>
+                                      ) : (
+                                        <span style={{ color, fontFamily: C.fontStats, fontSize: '0.78rem' }}>{display}</span>
+                                      )}
+                                    </td>
+                                  )
+                                })}
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                {Object.entries(NFL_DIVISIONS).map(([division, teams]) => (
-                  <div key={division} style={{
+            )
+          })()}
+
+          {/* ══════════════════════════════════════════════════════════════
+              TEAM ROSTER VIEW
+          ══════════════════════════════════════════════════════════════ */}
+          {teamsView === 'roster' && (
+            <div>
+              {!selectedTeamForRoster ? (
+                <div>
+                  <div style={{ color: C.muted, fontSize: '0.875rem', marginBottom: '1.25rem' }}>
+                    Select a team to view roster
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    {Object.entries(NFL_DIVISIONS).map(([division, teams]) => (
+                      <div key={division} style={{
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 8,
+                        backgroundColor: C.surface,
+                        padding: '1rem',
+                        overflow: 'hidden',
+                      }}>
+                        <div style={{
+                          color: C.gold, fontSize: '0.7rem', fontWeight: '700',
+                          marginBottom: '0.75rem', letterSpacing: '0.08em',
+                          borderBottom: `1px solid ${C.border}`, paddingBottom: '0.5rem',
+                        }}>
+                          {division}
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          {teams.map(team => (
+                            <button
+                              key={team}
+                              onClick={() => setSelectedTeamForRoster(team)}
+                              style={{
+                                flex: 1,
+                                backgroundColor: 'transparent',
+                                color: C.text,
+                                border: `1px solid ${C.border}`,
+                                borderRadius: 6,
+                                padding: '0.6rem 0.4rem',
+                                cursor: 'pointer',
+                                fontFamily: C.font,
+                                fontSize: '0.8rem',
+                                fontWeight: '600',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '0.4rem',
+                                transition: 'all 0.15s',
+                              }}
+                              onMouseEnter={e => {
+                                e.currentTarget.style.backgroundColor = C.surfaceHover
+                                e.currentTarget.style.borderColor = C.gold
+                                e.currentTarget.style.color = C.gold
+                              }}
+                              onMouseLeave={e => {
+                                e.currentTarget.style.backgroundColor = 'transparent'
+                                e.currentTarget.style.borderColor = C.border
+                                e.currentTarget.style.color = C.text
+                              }}
+                            >
+                              <TeamLogo abbr={team} size={30} />
+                              {team}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {/* Team header */}
+                  <div style={{
+                    marginBottom: '1.5rem',
+                    padding: '1rem 1.25rem',
+                    backgroundColor: C.surface,
                     border: `1px solid ${C.border}`,
                     borderRadius: 8,
-                    backgroundColor: C.surface,
-                    padding: '1rem',
-                    overflow: 'hidden',
+                    display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap',
                   }}>
-                    <div style={{
-                      color: C.gold, fontSize: '0.7rem', fontWeight: '700',
-                      marginBottom: '0.75rem', letterSpacing: '0.08em',
-                      borderBottom: `1px solid ${C.border}`, paddingBottom: '0.5rem',
-                    }}>
-                      {division}
+                    <button
+                      onClick={() => setSelectedTeamForRoster(null)}
+                      style={{
+                        backgroundColor: 'transparent', color: C.muted,
+                        border: `1px solid ${C.border}`, borderRadius: 6,
+                        padding: '0.4rem 0.75rem', cursor: 'pointer',
+                        fontFamily: C.font, fontSize: '0.78rem',
+                      }}
+                    >
+                      ← All Teams
+                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <TeamLogo abbr={selectedTeamForRoster} size={40} />
+                      <div>
+                        <span style={{ color: C.text, fontWeight: '700', fontSize: '1.25rem' }}>
+                          {selectedTeamForRoster}
+                        </span>
+                        <span style={{ color: C.muted, fontSize: '0.875rem', marginLeft: '0.5rem' }}>Roster</span>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      {teams.map(team => (
+                    <div style={{ display: 'flex', gap: '0.35rem', marginLeft: 'auto', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ color: C.muted, fontSize: '0.75rem' }}>Season:</span>
+                      {[2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016].map(year => (
                         <button
-                          key={team}
-                          onClick={() => setSelectedTeamForRoster(team)}
+                          key={year}
+                          onClick={() => setTeamRosterSeason(year)}
                           style={{
-                            flex: 1,
-                            backgroundColor: 'transparent',
-                            color: C.text,
-                            border: `1px solid ${C.border}`,
-                            borderRadius: 6,
-                            padding: '0.6rem 0.4rem',
-                            cursor: 'pointer',
-                            fontFamily: C.font,
-                            fontSize: '0.8rem',
-                            fontWeight: '600',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: '0.4rem',
-                            transition: 'all 0.15s',
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.backgroundColor = C.surfaceHover
-                            e.currentTarget.style.borderColor = C.gold
-                            e.currentTarget.style.color = C.gold
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.backgroundColor = 'transparent'
-                            e.currentTarget.style.borderColor = C.border
-                            e.currentTarget.style.color = C.text
+                            backgroundColor: teamRosterSeason === year ? C.gold : 'transparent',
+                            color: teamRosterSeason === year ? '#0f0f13' : C.muted,
+                            border: `1px solid ${teamRosterSeason === year ? C.gold : C.border}`,
+                            borderRadius: 4,
+                            padding: '0.2rem 0.5rem',
+                            cursor: 'pointer', fontFamily: C.font,
+                            fontSize: '0.72rem', fontWeight: '600',
                           }}
                         >
-                          <TeamLogo abbr={team} size={30} />
-                          {team}
+                          {year}
                         </button>
                       ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div>
-              {/* Team header */}
-              <div style={{
-                marginBottom: '1.5rem',
-                padding: '1rem 1.25rem',
-                backgroundColor: C.surface,
-                border: `1px solid ${C.border}`,
-                borderRadius: 8,
-                display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap',
-              }}>
-                <button
-                  onClick={() => setSelectedTeamForRoster(null)}
-                  style={{
-                    backgroundColor: 'transparent', color: C.muted,
-                    border: `1px solid ${C.border}`, borderRadius: 6,
-                    padding: '0.4rem 0.75rem', cursor: 'pointer',
-                    fontFamily: C.font, fontSize: '0.78rem',
-                  }}
-                >
-                  ← All Teams
-                </button>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <TeamLogo abbr={selectedTeamForRoster} size={40} />
-                  <div>
-                    <span style={{ color: C.text, fontWeight: '700', fontSize: '1.25rem' }}>
-                      {selectedTeamForRoster}
-                    </span>
-                    <span style={{ color: C.muted, fontSize: '0.875rem', marginLeft: '0.5rem' }}>Roster</span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '0.35rem', marginLeft: 'auto', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ color: C.muted, fontSize: '0.75rem' }}>Season:</span>
-                  {[2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016].map(year => (
-                    <button
-                      key={year}
-                      onClick={() => setTeamRosterSeason(year)}
-                      style={{
-                        backgroundColor: teamRosterSeason === year ? C.gold : 'transparent',
-                        color: teamRosterSeason === year ? '#0f0f13' : C.muted,
-                        border: `1px solid ${teamRosterSeason === year ? C.gold : C.border}`,
-                        borderRadius: 4,
-                        padding: '0.2rem 0.5rem',
-                        cursor: 'pointer', fontFamily: C.font,
-                        fontSize: '0.72rem', fontWeight: '600',
-                      }}
-                    >
-                      {year}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
-              {rosterLoading ? (
-                <div style={{ padding: '3rem', textAlign: 'center', color: C.muted, backgroundColor: C.surface, borderRadius: 8 }}>
-                  Loading {selectedTeamForRoster} {teamRosterSeason} roster…
-                </div>
-              ) : teamRoster.qbs.length === 0 && teamRoster.rbs.length === 0 && teamRoster.receivers.length === 0 ? (
-                <div style={{ padding: '2rem', textAlign: 'center', color: C.muted, backgroundColor: C.surface, borderRadius: 8 }}>
-                  No data found for {selectedTeamForRoster} {teamRosterSeason}
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  {/* QBs */}
-                  {teamRoster.qbs.length > 0 && (
-                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, backgroundColor: C.surface, overflow: 'hidden' }}>
-                      <div style={{
-                        padding: '0.75rem 1.25rem',
-                        borderBottom: `1px solid ${C.border}`,
-                        display: 'flex', alignItems: 'center', gap: '0.5rem',
-                      }}>
-                        <span style={{ color: C.gold, fontWeight: '700', fontSize: '0.8rem', letterSpacing: '0.05em' }}>QUARTERBACKS</span>
-                        <span style={{ color: C.muted, fontSize: '0.72rem' }}>{teamRoster.qbs.length} player{teamRoster.qbs.length !== 1 ? 's' : ''}</span>
-                      </div>
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                          <thead>
-                            <tr>
-                              <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '1.25rem' }}>Player</th>
-                              {['Att', 'Cmp', 'Cmp%', 'Yds', 'TD', 'INT', 'Rtg', 'CPOE', 'TTT'].map(h => (
-                                <th key={h} style={thStyle}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {teamRoster.qbs.map((p, i) => {
-                              const rowBg = i % 2 === 0 ? C.surface : '#131319'
-                              return (
-                                <tr key={p.player_gsis_id || i}
-                                  onClick={() => fetchPlayerGameLogs(p)}
-                                  style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg, cursor: 'pointer' }}
-                                  onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
-                                  onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
-                                >
-                                  <td style={{ padding: '0.6rem 1.25rem', whiteSpace: 'nowrap' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                      <PlayerAvatar name={p.player_display_name} headshotUrl={headshots[p.player_gsis_id]} size={28} />
-                                      <span style={{ color: C.text, fontWeight: '500' }}>{p.player_display_name}</span>
-                                    </div>
-                                  </td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.attempts ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.completions ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.completion_percentage?.toFixed(1) ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.pass_yards ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.positive }}>{p.pass_touchdowns ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.negative }}>{p.interceptions ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.passer_rating?.toFixed(1) ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: (p.completion_percentage_above_expectation ?? 0) > 0 ? C.positive : (p.completion_percentage_above_expectation ?? 0) < 0 ? C.negative : C.text }}>
-                                    {p.completion_percentage_above_expectation != null ? `${p.completion_percentage_above_expectation >= 0 ? '+' : ''}${p.completion_percentage_above_expectation.toFixed(1)}` : '-'}
-                                  </td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_time_to_throw?.toFixed(2) ?? '-'}s</td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                  {rosterLoading ? (
+                    <div style={{ padding: '3rem', textAlign: 'center', color: C.muted, backgroundColor: C.surface, borderRadius: 8 }}>
+                      Loading {selectedTeamForRoster} {teamRosterSeason} roster…
                     </div>
-                  )}
-
-                  {/* RBs */}
-                  {teamRoster.rbs.length > 0 && (
-                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, backgroundColor: C.surface, overflow: 'hidden' }}>
-                      <div style={{ padding: '0.75rem 1.25rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ color: C.gold, fontWeight: '700', fontSize: '0.8rem', letterSpacing: '0.05em' }}>RUNNING BACKS</span>
-                        <span style={{ color: C.muted, fontSize: '0.72rem' }}>{teamRoster.rbs.length} player{teamRoster.rbs.length !== 1 ? 's' : ''}</span>
-                      </div>
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                          <thead>
-                            <tr>
-                              <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '1.25rem' }}>Player</th>
-                              {['Att', 'Yds', 'YPC', 'TD', 'Eff', 'RYOE', 'Box%'].map(h => (
-                                <th key={h} style={thStyle}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {teamRoster.rbs.map((p, i) => {
-                              const rowBg = i % 2 === 0 ? C.surface : '#131319'
-                              return (
-                                <tr key={p.player_gsis_id || i}
-                                  onClick={() => fetchPlayerGameLogs(p)}
-                                  style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg, cursor: 'pointer' }}
-                                  onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
-                                  onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
-                                >
-                                  <td style={{ padding: '0.6rem 1.25rem', whiteSpace: 'nowrap' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                      <PlayerAvatar name={p.player_display_name} headshotUrl={headshots[p.player_gsis_id]} size={28} />
-                                      <span style={{ color: C.text, fontWeight: '500' }}>{p.player_display_name}</span>
-                                    </div>
-                                  </td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.rush_attempts ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.rush_yards ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_rush_yards?.toFixed(1) ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.positive }}>{p.rush_touchdowns ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: (p.efficiency ?? 0) > 0 ? C.positive : (p.efficiency ?? 0) < 0 ? C.negative : C.text }}>{p.efficiency?.toFixed(2) ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: (p.rush_yards_over_expected ?? 0) > 0 ? C.positive : (p.rush_yards_over_expected ?? 0) < 0 ? C.negative : C.text }}>
-                                    {p.rush_yards_over_expected != null ? `${p.rush_yards_over_expected >= 0 ? '+' : ''}${p.rush_yards_over_expected.toFixed(0)}` : '-'}
-                                  </td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.percent_attempts_gte_eight_defenders?.toFixed(1) ?? '-'}%</td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                  ) : teamRoster.qbs.length === 0 && teamRoster.rbs.length === 0 && teamRoster.receivers.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: C.muted, backgroundColor: C.surface, borderRadius: 8 }}>
+                      No data found for {selectedTeamForRoster} {teamRosterSeason}
                     </div>
-                  )}
-
-                  {/* WRs */}
-                  {teamRoster.receivers.filter(p => p.player_position === 'WR').length > 0 && (
-                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, backgroundColor: C.surface, overflow: 'hidden' }}>
-                      <div style={{ padding: '0.75rem 1.25rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ color: C.gold, fontWeight: '700', fontSize: '0.8rem', letterSpacing: '0.05em' }}>WIDE RECEIVERS</span>
-                        <span style={{ color: C.muted, fontSize: '0.72rem' }}>{teamRoster.receivers.filter(p => p.player_position === 'WR').length} players</span>
-                      </div>
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                          <thead>
-                            <tr>
-                              <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '1.25rem' }}>Player</th>
-                              {['Tgt', 'Rec', 'Ct%', 'Yds', 'TD', 'Sep', 'YAC+', 'aDOT'].map(h => <th key={h} style={thStyle}>{h}</th>)}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {teamRoster.receivers.filter(p => p.player_position === 'WR').map((p, i) => {
-                              const rowBg = i % 2 === 0 ? C.surface : '#131319'
-                              return (
-                                <tr key={p.player_gsis_id || i}
-                                  onClick={() => fetchPlayerGameLogs(p)}
-                                  style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg, cursor: 'pointer' }}
-                                  onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
-                                  onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
-                                >
-                                  <td style={{ padding: '0.6rem 1.25rem', whiteSpace: 'nowrap' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                      <PlayerAvatar name={p.player_display_name} headshotUrl={headshots[p.player_gsis_id]} size={28} />
-                                      <span style={{ color: C.text, fontWeight: '500' }}>{p.player_display_name}</span>
-                                    </div>
-                                  </td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.targets ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.receptions ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.catch_percentage?.toFixed(1) ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.yards ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.positive }}>{p.rec_touchdowns ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_separation?.toFixed(2) ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: (p.avg_yac_above_expectation ?? 0) > 0 ? C.positive : (p.avg_yac_above_expectation ?? 0) < 0 ? C.negative : C.text }}>
-                                    {p.avg_yac_above_expectation != null ? `${p.avg_yac_above_expectation >= 0 ? '+' : ''}${p.avg_yac_above_expectation.toFixed(2)}` : '-'}
-                                  </td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_intended_air_yards?.toFixed(1) ?? '-'}</td>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      {/* QBs */}
+                      {teamRoster.qbs.length > 0 && (
+                        <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, backgroundColor: C.surface, overflow: 'hidden' }}>
+                          <div style={{
+                            padding: '0.75rem 1.25rem',
+                            borderBottom: `1px solid ${C.border}`,
+                            display: 'flex', alignItems: 'center', gap: '0.5rem',
+                          }}>
+                            <span style={{ color: C.gold, fontWeight: '700', fontSize: '0.8rem', letterSpacing: '0.05em' }}>QUARTERBACKS</span>
+                            <span style={{ color: C.muted, fontSize: '0.72rem' }}>{teamRoster.qbs.length} player{teamRoster.qbs.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                              <thead>
+                                <tr>
+                                  <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '1.25rem' }}>Player</th>
+                                  {['Att', 'Cmp', 'Cmp%', 'Yds', 'TD', 'INT', 'Rtg', 'CPOE', 'TTT'].map(h => (
+                                    <th key={h} style={thStyle}>{h}</th>
+                                  ))}
                                 </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
+                              </thead>
+                              <tbody>
+                                {teamRoster.qbs.map((p, i) => {
+                                  const rowBg = i % 2 === 0 ? C.surface : '#131319'
+                                  return (
+                                    <tr key={p.player_gsis_id || i}
+                                      onClick={() => fetchPlayerGameLogs(p)}
+                                      style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg, cursor: 'pointer' }}
+                                      onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
+                                      onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
+                                    >
+                                      <td style={{ padding: '0.6rem 1.25rem', whiteSpace: 'nowrap' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                          <PlayerAvatar name={p.player_display_name} headshotUrl={headshots[p.player_gsis_id]} size={28} />
+                                          <span style={{ color: C.text, fontWeight: '500' }}>{p.player_display_name}</span>
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.attempts ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.completions ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.completion_percentage?.toFixed(1) ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.pass_yards ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.positive }}>{p.pass_touchdowns ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.negative }}>{p.interceptions ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.passer_rating?.toFixed(1) ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: (p.completion_percentage_above_expectation ?? 0) > 0 ? C.positive : (p.completion_percentage_above_expectation ?? 0) < 0 ? C.negative : C.text }}>
+                                        {p.completion_percentage_above_expectation != null ? `${p.completion_percentage_above_expectation >= 0 ? '+' : ''}${p.completion_percentage_above_expectation.toFixed(1)}` : '-'}
+                                      </td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_time_to_throw?.toFixed(2) ?? '-'}s</td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
 
-                  {/* TEs */}
-                  {teamRoster.receivers.filter(p => p.player_position === 'TE').length > 0 && (
-                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, backgroundColor: C.surface, overflow: 'hidden' }}>
-                      <div style={{ padding: '0.75rem 1.25rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ color: C.gold, fontWeight: '700', fontSize: '0.8rem', letterSpacing: '0.05em' }}>TIGHT ENDS</span>
-                        <span style={{ color: C.muted, fontSize: '0.72rem' }}>{teamRoster.receivers.filter(p => p.player_position === 'TE').length} players</span>
-                      </div>
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                          <thead>
-                            <tr>
-                              <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '1.25rem' }}>Player</th>
-                              {['Tgt', 'Rec', 'Ct%', 'Yds', 'TD', 'Sep', 'YAC+', 'aDOT'].map(h => <th key={h} style={thStyle}>{h}</th>)}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {teamRoster.receivers.filter(p => p.player_position === 'TE').map((p, i) => {
-                              const rowBg = i % 2 === 0 ? C.surface : '#131319'
-                              return (
-                                <tr key={p.player_gsis_id || i}
-                                  onClick={() => fetchPlayerGameLogs(p)}
-                                  style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg, cursor: 'pointer' }}
-                                  onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
-                                  onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
-                                >
-                                  <td style={{ padding: '0.6rem 1.25rem', whiteSpace: 'nowrap' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                      <PlayerAvatar name={p.player_display_name} headshotUrl={headshots[p.player_gsis_id]} size={28} />
-                                      <span style={{ color: C.text, fontWeight: '500' }}>{p.player_display_name}</span>
-                                    </div>
-                                  </td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.targets ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.receptions ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.catch_percentage?.toFixed(1) ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.yards ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.positive }}>{p.rec_touchdowns ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_separation?.toFixed(2) ?? '-'}</td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: (p.avg_yac_above_expectation ?? 0) > 0 ? C.positive : (p.avg_yac_above_expectation ?? 0) < 0 ? C.negative : C.text }}>
-                                    {p.avg_yac_above_expectation != null ? `${p.avg_yac_above_expectation >= 0 ? '+' : ''}${p.avg_yac_above_expectation.toFixed(2)}` : '-'}
-                                  </td>
-                                  <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_intended_air_yards?.toFixed(1) ?? '-'}</td>
+                      {/* RBs */}
+                      {teamRoster.rbs.length > 0 && (
+                        <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, backgroundColor: C.surface, overflow: 'hidden' }}>
+                          <div style={{ padding: '0.75rem 1.25rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ color: C.gold, fontWeight: '700', fontSize: '0.8rem', letterSpacing: '0.05em' }}>RUNNING BACKS</span>
+                            <span style={{ color: C.muted, fontSize: '0.72rem' }}>{teamRoster.rbs.length} player{teamRoster.rbs.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                              <thead>
+                                <tr>
+                                  <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '1.25rem' }}>Player</th>
+                                  {['Att', 'Yds', 'YPC', 'TD', 'Eff', 'RYOE', 'Box%'].map(h => (
+                                    <th key={h} style={thStyle}>{h}</th>
+                                  ))}
                                 </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                              </thead>
+                              <tbody>
+                                {teamRoster.rbs.map((p, i) => {
+                                  const rowBg = i % 2 === 0 ? C.surface : '#131319'
+                                  return (
+                                    <tr key={p.player_gsis_id || i}
+                                      onClick={() => fetchPlayerGameLogs(p)}
+                                      style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg, cursor: 'pointer' }}
+                                      onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
+                                      onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
+                                    >
+                                      <td style={{ padding: '0.6rem 1.25rem', whiteSpace: 'nowrap' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                          <PlayerAvatar name={p.player_display_name} headshotUrl={headshots[p.player_gsis_id]} size={28} />
+                                          <span style={{ color: C.text, fontWeight: '500' }}>{p.player_display_name}</span>
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.rush_attempts ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.rush_yards ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_rush_yards?.toFixed(1) ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.positive }}>{p.rush_touchdowns ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: (p.efficiency ?? 0) > 0 ? C.positive : (p.efficiency ?? 0) < 0 ? C.negative : C.text }}>{p.efficiency?.toFixed(2) ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: (p.rush_yards_over_expected ?? 0) > 0 ? C.positive : (p.rush_yards_over_expected ?? 0) < 0 ? C.negative : C.text }}>
+                                        {p.rush_yards_over_expected != null ? `${p.rush_yards_over_expected >= 0 ? '+' : ''}${p.rush_yards_over_expected.toFixed(0)}` : '-'}
+                                      </td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.percent_attempts_gte_eight_defenders?.toFixed(1) ?? '-'}%</td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* WRs */}
+                      {teamRoster.receivers.filter(p => p.player_position === 'WR').length > 0 && (
+                        <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, backgroundColor: C.surface, overflow: 'hidden' }}>
+                          <div style={{ padding: '0.75rem 1.25rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ color: C.gold, fontWeight: '700', fontSize: '0.8rem', letterSpacing: '0.05em' }}>WIDE RECEIVERS</span>
+                            <span style={{ color: C.muted, fontSize: '0.72rem' }}>{teamRoster.receivers.filter(p => p.player_position === 'WR').length} players</span>
+                          </div>
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                              <thead>
+                                <tr>
+                                  <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '1.25rem' }}>Player</th>
+                                  {['Tgt', 'Rec', 'Ct%', 'Yds', 'TD', 'Sep', 'YAC+', 'aDOT'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {teamRoster.receivers.filter(p => p.player_position === 'WR').map((p, i) => {
+                                  const rowBg = i % 2 === 0 ? C.surface : '#131319'
+                                  return (
+                                    <tr key={p.player_gsis_id || i}
+                                      onClick={() => fetchPlayerGameLogs(p)}
+                                      style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg, cursor: 'pointer' }}
+                                      onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
+                                      onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
+                                    >
+                                      <td style={{ padding: '0.6rem 1.25rem', whiteSpace: 'nowrap' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                          <PlayerAvatar name={p.player_display_name} headshotUrl={headshots[p.player_gsis_id]} size={28} />
+                                          <span style={{ color: C.text, fontWeight: '500' }}>{p.player_display_name}</span>
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.targets ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.receptions ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.catch_percentage?.toFixed(1) ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.yards ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.positive }}>{p.rec_touchdowns ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_separation?.toFixed(2) ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: (p.avg_yac_above_expectation ?? 0) > 0 ? C.positive : (p.avg_yac_above_expectation ?? 0) < 0 ? C.negative : C.text }}>
+                                        {p.avg_yac_above_expectation != null ? `${p.avg_yac_above_expectation >= 0 ? '+' : ''}${p.avg_yac_above_expectation.toFixed(2)}` : '-'}
+                                      </td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_intended_air_yards?.toFixed(1) ?? '-'}</td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* TEs */}
+                      {teamRoster.receivers.filter(p => p.player_position === 'TE').length > 0 && (
+                        <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, backgroundColor: C.surface, overflow: 'hidden' }}>
+                          <div style={{ padding: '0.75rem 1.25rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ color: C.gold, fontWeight: '700', fontSize: '0.8rem', letterSpacing: '0.05em' }}>TIGHT ENDS</span>
+                            <span style={{ color: C.muted, fontSize: '0.72rem' }}>{teamRoster.receivers.filter(p => p.player_position === 'TE').length} players</span>
+                          </div>
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                              <thead>
+                                <tr>
+                                  <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '1.25rem' }}>Player</th>
+                                  {['Tgt', 'Rec', 'Ct%', 'Yds', 'TD', 'Sep', 'YAC+', 'aDOT'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {teamRoster.receivers.filter(p => p.player_position === 'TE').map((p, i) => {
+                                  const rowBg = i % 2 === 0 ? C.surface : '#131319'
+                                  return (
+                                    <tr key={p.player_gsis_id || i}
+                                      onClick={() => fetchPlayerGameLogs(p)}
+                                      style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg, cursor: 'pointer' }}
+                                      onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
+                                      onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
+                                    >
+                                      <td style={{ padding: '0.6rem 1.25rem', whiteSpace: 'nowrap' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                          <PlayerAvatar name={p.player_display_name} headshotUrl={headshots[p.player_gsis_id]} size={28} />
+                                          <span style={{ color: C.text, fontWeight: '500' }}>{p.player_display_name}</span>
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.targets ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.receptions ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.catch_percentage?.toFixed(1) ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.yards ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.positive }}>{p.rec_touchdowns ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_separation?.toFixed(2) ?? '-'}</td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: (p.avg_yac_above_expectation ?? 0) > 0 ? C.positive : (p.avg_yac_above_expectation ?? 0) < 0 ? C.negative : C.text }}>
+                                        {p.avg_yac_above_expectation != null ? `${p.avg_yac_above_expectation >= 0 ? '+' : ''}${p.avg_yac_above_expectation.toFixed(2)}` : '-'}
+                                      </td>
+                                      <td style={{ padding: '0.6rem', textAlign: 'right', color: C.text }}>{p.avg_intended_air_yards?.toFixed(1) ?? '-'}</td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2065,7 +2429,7 @@ function NGSTerminal({ onNavigate }) {
                                 const homeAway = game.home_away === 'home' ? 'vs' : game.home_away === 'away' ? '@' : ''
                                 const hasPlays = !!game.game_id
                                 return (
-                                  <tr key={`${game.season}-${game.week}-${gIdx}`} style={{ backgroundColor: rowBg, borderBottom: `1px solid ${C.border}`, cursor: hasPlays ? 'pointer' : 'default' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover} onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg} onClick={() => hasPlays && fetchGamePlays(game.game_id, selectedPlayer, `Wk ${game.week} vs ${game.opponent_team || '?'}`)}>
+                                  <tr key={`${game.season}-${game.week}-${gIdx}`} style={{ backgroundColor: rowBg, borderBottom: `1px solid ${C.border}`, cursor: hasPlays ? 'pointer' : 'default' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover} onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg} onClick={() => hasPlays && fetchGameSummary(game.game_id)}>
                                     <td style={{ padding: '0.65rem 0.75rem', textAlign: 'center', color: C.muted, fontFamily: C.fontStats, fontWeight: '600', fontSize: '0.8rem', borderRight: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>{weekLabel}</td>
                                     <td style={{ padding: '0.5rem 0.75rem' }}>
                                       {game.opponent_team ? (
@@ -2127,183 +2491,344 @@ function NGSTerminal({ onNavigate }) {
         NFL Next Gen Stats · RFID Tracking Data (10Hz) · 2016–Present
       </div>
 
-      {/* ── Play-by-Play Modal ──────────────────────────────────────────── */}
-      {selectedGame && (
-        <div
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.92)', zIndex: 2000, overflowY: 'auto', padding: '2rem' }}
-          onClick={() => { setSelectedGame(null); setGamePlays([]) }}
-        >
-          <div onClick={e => e.stopPropagation()} style={{ maxWidth: '1400px', margin: '0 auto', backgroundColor: C.bg, border: `1px solid ${C.borderBright}`, borderRadius: 8, overflow: 'hidden' }}>
-            {/* PBP Header */}
-            <div style={{ padding: '1.25rem 1.75rem', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.surface }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.3rem' }}>
-                  <PlayerAvatar name={selectedGame.player.player_display_name} headshotUrl={headshots[selectedGame.player.player_gsis_id]} size={36} />
-                  <h2 style={{ color: C.text, fontSize: '1.1rem', fontWeight: '800', margin: 0, fontFamily: C.fontDisplay }}>{selectedGame.player.player_display_name}</h2>
-                  <span style={{ color: C.muted, fontSize: '0.78rem', fontFamily: C.fontCond, letterSpacing: '0.06em', textTransform: 'uppercase' }}>· {selectedGame.label}</span>
-                </div>
-                <div style={{ fontSize: '0.72rem', color: C.muted, fontFamily: C.fontCond, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Play-by-Play · {gamePlaysLoading ? '…' : `${gamePlays.length} plays`}
-                </div>
-              </div>
-              <button onClick={() => { setSelectedGame(null); setGamePlays([]) }} style={{ backgroundColor: 'transparent', color: C.muted, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0.5rem 1rem', cursor: 'pointer', fontFamily: C.font, fontSize: '0.8rem' }}>✕ Close</button>
-            </div>
+      {/* ── Game Summary Modal ─────────────────────────────────────────── */}
+      {/* ── Game Summary Modal ─────────────────────────────────────────── */}
+      {(gameSummaryLoading || gameSummary) && (() => {
+        const gs = gameSummary
+        const closeModal = () => { setGameSummary(null); setGameSummaryLoading(false) }
 
-            {gamePlaysLoading ? (
-              <div style={{ padding: '4rem', textAlign: 'center', color: C.muted, fontFamily: C.font }}>Loading plays…</div>
-            ) : gamePlays.length === 0 ? (
-              <div style={{ padding: '4rem', textAlign: 'center', color: C.muted, fontFamily: C.font }}>
-                No play data found. Run a data refresh with <code style={{ color: C.gold }}>mode=plays</code> to populate.
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: C.surface, borderBottom: `2px solid ${C.border}`, position: 'sticky', top: 0, zIndex: 10 }}>
-                      {[['QTR','center',40],['TIME','center',60],['DOWN','center',80],['YD LN','center',60],
-                        ['PLAY','left',400],['YDS','right',50],['EPA','right',60],['WPA','right',60],
-                        ['AIR','right',50],['YAC','right',50],['PASSER','left',140],['TARGET','left',140]].map(([lbl, align, w]) => (
-                        <th key={lbl} style={{ ...thStyle, textAlign: align, minWidth: w, backgroundColor: C.surface, fontSize: '0.65rem', padding: '0.5rem 0.6rem', borderBottom: `2px solid ${C.border}` }}>{lbl}</th>
+        // SVG Win Probability Chart
+        const WPChart = ({ wpData, homeTeam, awayTeam }) => {
+          if (!wpData || wpData.length === 0) return (
+            <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: '0.75rem' }}>
+              WP chart available after re-download
+            </div>
+          )
+          const W = 500, H = 160
+          const padL = 32, padR = 8, padT = 12, padB = 28
+          const innerW = W - padL - padR
+          const innerH = H - padT - padB
+          // Sort by game_seconds_remaining desc (start of game = 3600)
+          const sorted = [...wpData].sort((a, b) => b.game_seconds_remaining - a.game_seconds_remaining)
+          const maxSec = 3600
+          const toX = (sec) => padL + (1 - sec / maxSec) * innerW
+          const toY = (pct) => padT + (1 - pct / 100) * innerH
+          // Build path
+          const pts = sorted.map(d => `${toX(d.game_seconds_remaining)},${toY(d.home_wp)}`)
+          const path = `M ${pts.join(' L ')}`
+          // Quarter markers at 2700, 1800, 900 seconds remaining
+          const qtrs = [2700, 1800, 900]
+          // Home % at end
+          const lastPt = sorted[sorted.length - 1]
+          const homeWin = lastPt?.home_wp > 50
+
+          return (
+            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+              {/* Background */}
+              <rect x={padL} y={padT} width={innerW} height={innerH} fill="#0f0f13" />
+              {/* 50% line */}
+              <line x1={padL} y1={padT + innerH/2} x2={padL + innerW} y2={padT + innerH/2} stroke={C.borderBright} strokeWidth="1" strokeDasharray="4,3" />
+              {/* Quarter markers */}
+              {qtrs.map(sec => (
+                <line key={sec} x1={toX(sec)} y1={padT} x2={toX(sec)} y2={padT + innerH} stroke={C.border} strokeWidth="1" />
+              ))}
+              {/* Home team area fill above 50% */}
+              <clipPath id="clipAbove">
+                <rect x={padL} y={padT} width={innerW} height={innerH/2} />
+              </clipPath>
+              <clipPath id="clipBelow">
+                <rect x={padL} y={padT + innerH/2} width={innerW} height={innerH/2} />
+              </clipPath>
+              <path d={`${path} L ${padL + innerW},${padT + innerH} L ${padL},${padT + innerH} Z`}
+                fill={`rgba(52,208,88,0.15)`} clipPath="url(#clipAbove)" />
+              <path d={`${path} L ${padL + innerW},${padT} L ${padL},${padT} Z`}
+                fill={`rgba(248,81,73,0.12)`} clipPath="url(#clipBelow)" />
+              {/* WP line */}
+              <path d={path} fill="none" stroke={C.gold} strokeWidth="2" strokeLinejoin="round" />
+              {/* Y axis labels */}
+              {[100,75,50,25,0].map(pct => (
+                <text key={pct} x={padL - 4} y={toY(pct) + 4} textAnchor="end"
+                  fill={C.muted} fontSize="9" fontFamily="monospace">{pct}</text>
+              ))}
+              {/* X axis labels */}
+              {['Q1','Q2','Q3','Q4'].map((lbl, i) => (
+                <text key={lbl} x={padL + innerW * (i + 0.5) / 4} y={H - 6} textAnchor="middle"
+                  fill={C.muted} fontSize="9" fontFamily="monospace">{lbl}</text>
+              ))}
+              {/* Team labels */}
+              <text x={padL + 4} y={padT + 14} fill={C.positive} fontSize="9" fontFamily="monospace" fontWeight="bold">{homeTeam}</text>
+              <text x={padL + 4} y={padT + innerH - 5} fill={C.negative} fontSize="9" fontFamily="monospace" fontWeight="bold">{awayTeam}</text>
+            </svg>
+          )
+        }
+
+        const BoxTable = ({ title, rows, columns }) => {
+          if (!rows || rows.length === 0) return null
+          const headerStyle = { padding: '0.4rem 0.6rem', color: C.muted, fontFamily: C.fontCond, fontSize: '0.6rem', fontWeight: '700', letterSpacing: '0.07em', textTransform: 'uppercase', textAlign: 'right', borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap' }
+          return (
+            <div style={{ marginBottom: '0.75rem' }}>
+              <div style={{ color: C.gold, fontFamily: C.fontCond, fontSize: '0.65rem', fontWeight: '700', letterSpacing: '0.1em', textTransform: 'uppercase', padding: '0.5rem 0.75rem 0.25rem', borderTop: `1px solid ${C.border}` }}>{title}</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...headerStyle, textAlign: 'left', minWidth: 110 }}>Player</th>
+                    {columns.map(c => <th key={c.key} style={headerStyle}>{c.label}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => (
+                    <tr key={i} style={{ backgroundColor: i % 2 === 0 ? C.surface : '#131319', borderBottom: `1px solid ${C.border}` }}>
+                      <td style={{ padding: '0.45rem 0.6rem', color: C.text, fontFamily: C.font, fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{row.name}</td>
+                      {columns.map(c => (
+                        <td key={c.key} style={{ padding: '0.45rem 0.6rem', textAlign: 'right', fontFamily: C.fontStats, fontSize: '0.75rem', color: c.epa ? ((row[c.key] > 0 ? C.positive : row[c.key] < 0 ? C.negative : C.text)) : C.text }}>
+                          {row[c.key] ?? '—'}
+                        </td>
                       ))}
                     </tr>
-                  </thead>
-                  <tbody>
-                    {gamePlays.map((play, i) => {
-                      const rowBg = i % 2 === 0 ? '#131319' : C.bg
-                      const isTD = play.touchdown === 1
-                      const isInt = play.interception === 1
-                      const isSack = play.sack === 1
-                      const isFumble = play.fumble_lost === 1
-                      const epaColor = play.epa != null ? (play.epa > 0 ? C.positive : play.epa < 0 ? C.negative : C.muted) : C.muted
-                      const wpaColor = play.wpa != null ? (play.wpa > 0 ? C.positive : play.wpa < 0 ? C.negative : C.muted) : C.muted
-                      const mins = play.quarter_seconds_remaining != null ? Math.floor(play.quarter_seconds_remaining / 60) : null
-                      const secs = play.quarter_seconds_remaining != null ? play.quarter_seconds_remaining % 60 : null
-                      const timeLabel = mins != null ? `${mins}:${String(secs).padStart(2,'0')}` : '—'
-                      const qtrLabel = play.qtr != null ? (play.qtr > 4 ? 'OT' : `Q${play.qtr}`) : '—'
-                      const downLabel = play.down != null ? `${play.down}${['st','nd','rd','th'][Math.min(play.down-1,3)]} & ${play.ydstogo}` : '—'
-                      const ydLn = play.yardline_100 != null ? (play.yardline_100 === 50 ? '50' : play.yardline_100 > 50 ? `OPP ${100-play.yardline_100}` : `OWN ${play.yardline_100}`) : '—'
-                      // Build event badges
-                      const badges = []
-                      if (isTD) badges.push({ label: 'TD', color: C.positive })
-                      if (isInt) badges.push({ label: 'INT', color: C.negative })
-                      if (isSack) badges.push({ label: 'SACK', color: '#f80' })
-                      if (isFumble) badges.push({ label: 'FUM', color: C.negative })
-                      if (play.qb_hit === 1 && !isSack) badges.push({ label: 'HIT', color: '#f80' })
-                      if (play.play_action === 1) badges.push({ label: 'PA', color: C.muted })
-                      return (
-                        <tr key={i} style={{ backgroundColor: isTD ? 'rgba(52,208,88,0.08)' : isInt ? 'rgba(248,81,73,0.08)' : rowBg, borderBottom: `1px solid ${C.border}` }}
-                          onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
-                          onMouseLeave={e => e.currentTarget.style.backgroundColor = isTD ? 'rgba(52,208,88,0.08)' : isInt ? 'rgba(248,81,73,0.08)' : rowBg}
-                        >
-                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', color: C.muted, fontFamily: C.fontStats, fontWeight: '600' }}>{qtrLabel}</td>
-                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', color: C.muted, fontFamily: C.fontStats }}>{timeLabel}</td>
-                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', color: C.text, fontFamily: C.fontStats, whiteSpace: 'nowrap' }}>{downLabel}</td>
-                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', color: C.muted, fontFamily: C.fontStats, fontSize: '0.72rem' }}>{ydLn}</td>
-                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'left' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                              <span style={{ color: C.text, fontFamily: C.font, fontSize: '0.76rem', lineHeight: 1.4 }}>{play.desc || '—'}</span>
-                              {badges.length > 0 && (
-                                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-                                  {badges.map(b => (
-                                    <span key={b.label} style={{ display: 'inline-block', padding: '0.1rem 0.35rem', borderRadius: 3, border: `1px solid ${b.color}`, color: b.color, fontSize: '0.6rem', fontFamily: C.fontCond, fontWeight: '700', letterSpacing: '0.05em' }}>{b.label}</span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: (play.yards_gained || 0) > 0 ? C.text : C.negative, fontFamily: C.fontStats, fontWeight: '600' }}>{play.yards_gained != null ? play.yards_gained : '—'}</td>
-                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: epaColor, fontFamily: C.fontStats, fontWeight: '600' }}>{play.epa != null ? (play.epa >= 0 ? '+' : '') + play.epa.toFixed(2) : '—'}</td>
-                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: wpaColor, fontFamily: C.fontStats }}>{play.wpa != null ? (play.wpa >= 0 ? '+' : '') + (play.wpa * 100).toFixed(1) + '%' : '—'}</td>
-                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: C.muted, fontFamily: C.fontStats }}>{play.air_yards != null ? play.air_yards : '—'}</td>
-                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: C.muted, fontFamily: C.fontStats }}>{play.yards_after_catch != null ? play.yards_after_catch.toFixed(0) : '—'}</td>
-                          <td style={{ padding: '0.5rem 0.75rem', color: C.text, fontFamily: C.font, fontSize: '0.76rem', whiteSpace: 'nowrap' }}>{play.passer_player_name || '—'}</td>
-                          <td style={{ padding: '0.5rem 0.75rem', color: C.text, fontFamily: C.font, fontSize: '0.76rem', whiteSpace: 'nowrap' }}>{play.receiver_player_name || play.rusher_player_name || '—'}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
 
-      {/* ── Glossary Modal ───────────────────────────────────────────────── */}
+        const TeamPanel = ({ side }) => {
+          const data = gs?.[side]
+          const team = gs?.[side === 'home' ? 'home_team' : 'away_team']
+          const tab = gameSummaryTab[side]
+          const tabBtnStyle = (active) => ({
+            backgroundColor: active ? C.gold : 'transparent',
+            color: active ? '#0f0f13' : C.muted,
+            border: `1px solid ${active ? C.gold : C.border}`,
+            borderRadius: 4, padding: '0.3rem 0.75rem',
+            cursor: 'pointer', fontFamily: C.fontCond, fontSize: '0.65rem', fontWeight: '700',
+            letterSpacing: '0.05em', textTransform: 'uppercase',
+          })
+          const passCols = [
+            { key: 'cp_att', label: 'CP/ATT' }, { key: 'yds', label: 'YDS' },
+            { key: 'td_int', label: 'TD-INT' }, { key: 'cmp_pct', label: 'CMP%' },
+            { key: 'rating', label: 'RATING' }, { key: 'yds_att', label: 'YDS/ATT' },
+          ]
+          const rushCols = [
+            { key: 'att', label: 'ATT' }, { key: 'yds', label: 'YDS' },
+            { key: 'ypc', label: 'YPC' }, { key: 'tds', label: 'TD' }, { key: 'long', label: 'LONG' },
+          ]
+          const recCols = [
+            { key: 'tgt', label: 'TGT' }, { key: 'rec', label: 'REC' }, { key: 'yds', label: 'YDS' },
+            { key: 'tds', label: 'TD' }, { key: 'yds_rec', label: 'YDS/REC' },
+            { key: 'long', label: 'LG REC' }, { key: 'yac', label: 'YAC' },
+          ]
+          return (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 0.75rem 0.5rem', borderBottom: `1px solid ${C.border}` }}>
+                <TeamLogo abbr={team} size={32} />
+                <span style={{ fontFamily: C.fontDisplay, fontWeight: '800', fontSize: '1.1rem', color: C.text }}>{team}</span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', padding: '0.5rem 0.75rem', borderBottom: `1px solid ${C.border}` }}>
+                <button style={tabBtnStyle(tab === 'offense')} onClick={() => setGameSummaryTab(t => ({ ...t, [side]: 'offense' }))}>Offense</button>
+                <button style={tabBtnStyle(tab === 'defense')} onClick={() => setGameSummaryTab(t => ({ ...t, [side]: 'defense' }))}>Defense</button>
+              </div>
+              <div style={{ overflowY: 'auto', maxHeight: 420 }}>
+                {tab === 'offense' && data && (
+                  <>
+                    <BoxTable title="Passing" rows={data.passing} columns={passCols} />
+                    <BoxTable title="Rushing" rows={data.rushing} columns={rushCols} />
+                    <BoxTable title="Receiving" rows={data.receiving} columns={recCols} />
+                  </>
+                )}
+                {tab === 'defense' && (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: C.muted, fontSize: '0.75rem' }}>
+                    Defense stats coming soon
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        }
+
+        return (
+          <div
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.94)', zIndex: 2000, overflowY: 'auto', padding: '1rem' }}
+            onClick={closeModal}
+          >
+            <div onClick={e => e.stopPropagation()} style={{ maxWidth: '1300px', margin: '0 auto', backgroundColor: C.bg, border: `1px solid ${C.borderBright}`, borderRadius: 10, overflow: 'hidden' }}>
+              {/* Header bar */}
+              <div style={{ padding: '0.85rem 1.25rem', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.surface }}>
+                <div style={{ fontFamily: C.fontCond, color: C.muted, fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  Game Summary · {gs?.game_id || '…'}
+                </div>
+                <button onClick={closeModal} style={{ backgroundColor: 'transparent', color: C.muted, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0.4rem 0.875rem', cursor: 'pointer', fontFamily: C.font, fontSize: '0.78rem' }}>✕ Close</button>
+              </div>
+
+              {gameSummaryLoading && !gs ? (
+                <div style={{ padding: '4rem', textAlign: 'center', color: C.muted }}>Loading game data…</div>
+              ) : gs && (
+                <>
+                  {/* Score bar */}
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '2rem', padding: '1rem 1.5rem', borderBottom: `1px solid ${C.border}`, backgroundColor: '#0d0d14' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <TeamLogo abbr={gs.away_team} size={40} />
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontFamily: C.fontDisplay, fontSize: '1.5rem', fontWeight: '800', color: gs.away_score > gs.home_score ? C.text : C.muted }}>{gs.away_team}</div>
+                        <div style={{ fontFamily: C.fontStats, fontSize: '2.25rem', fontWeight: '900', color: C.text, lineHeight: 1 }}>{gs.away_score}</div>
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: C.fontCond, color: C.muted, fontSize: '0.85rem', letterSpacing: '0.05em' }}>FINAL</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontFamily: C.fontDisplay, fontSize: '1.5rem', fontWeight: '800', color: gs.home_score > gs.away_score ? C.text : C.muted }}>{gs.home_team}</div>
+                        <div style={{ fontFamily: C.fontStats, fontSize: '2.25rem', fontWeight: '900', color: C.text, lineHeight: 1 }}>{gs.home_score}</div>
+                      </div>
+                      <TeamLogo abbr={gs.home_team} size={40} />
+                    </div>
+                  </div>
+
+                  {/* Main 3-column layout */}
+                  <div style={{ display: 'flex', gap: 0 }}>
+                    {/* Away team */}
+                    <div style={{ borderRight: `1px solid ${C.border}`, flex: 1, minWidth: 0 }}>
+                      <TeamPanel side="away" />
+                    </div>
+
+                    {/* Center: WP chart + last plays */}
+                    <div style={{ width: 360, flexShrink: 0, borderRight: `1px solid ${C.border}` }}>
+                      {/* WP Chart */}
+                      <div style={{ padding: '0.75rem', borderBottom: `1px solid ${C.border}` }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <TeamLogo abbr={gs.away_team} size={18} />
+                            <span style={{ fontFamily: C.fontStats, fontSize: '0.8rem', color: gs.away_score > gs.home_score ? C.text : C.muted, fontWeight: '700' }}>
+                              {gs.wp_chart.length > 0 ? `${gs.wp_chart[gs.wp_chart.length - 1]?.away_wp ?? 100}%` : (gs.away_score > gs.home_score ? '100%' : '0%')}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontFamily: C.fontStats, fontSize: '0.8rem', color: gs.home_score > gs.away_score ? C.text : C.muted, fontWeight: '700' }}>
+                              {gs.wp_chart.length > 0 ? `${gs.wp_chart[gs.wp_chart.length - 1]?.home_wp ?? 100}%` : (gs.home_score > gs.away_score ? '100%' : '0%')}
+                            </span>
+                            <TeamLogo abbr={gs.home_team} size={18} />
+                          </div>
+                        </div>
+                        <WPChart wpData={gs.wp_chart} homeTeam={gs.home_team} awayTeam={gs.away_team} />
+                        <div style={{ textAlign: 'center', fontFamily: C.fontCond, fontSize: '0.6rem', color: C.dim, marginTop: '0.25rem', letterSpacing: '0.05em' }}>WIN PROBABILITY</div>
+                      </div>
+
+                      {/* Last 5 plays */}
+                      <div style={{ padding: '0.5rem 0' }}>
+                        <div style={{ fontFamily: C.fontCond, fontSize: '0.65rem', fontWeight: '700', letterSpacing: '0.1em', textTransform: 'uppercase', color: C.gold, padding: '0.4rem 0.75rem' }}>Last {gs.last_plays.length} Plays</div>
+                        {gs.last_plays.map((play, i) => (
+                          <div key={i} style={{ padding: '0.5rem 0.75rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                            <TeamLogo abbr={play.team} size={16} />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.2rem', alignItems: 'center' }}>
+                                <span style={{ fontFamily: C.fontCond, fontSize: '0.6rem', color: C.muted, whiteSpace: 'nowrap' }}>
+                                  Q{play.qtr}{play.down ? ` · ${play.down}${['st','nd','rd','th'][Math.min((play.down||1)-1,3)]} & ${play.ydstogo}` : ''}
+                                </span>
+                              </div>
+                              <div style={{ fontFamily: C.font, fontSize: '0.72rem', color: C.text, lineHeight: 1.4 }}>{play.desc}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Home team */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <TeamPanel side="home" />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Glossary Slide-Over Panel ────────────────────────────────────── */}
+      {/* Backdrop */}
       {showGlossary && (
         <div
           onClick={() => setShowGlossary(false)}
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1000,
-            display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
-            paddingTop: '3rem', overflowY: 'auto',
+            backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1100,
+            transition: 'opacity 0.25s',
           }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
+        />
+      )}
+      {/* Panel */}
+      <div
+        style={{
+          position: 'fixed', top: 0, right: 0, bottom: 0,
+          width: 420, maxWidth: '90vw',
+          backgroundColor: C.bg,
+          borderLeft: `1px solid ${C.borderBright}`,
+          zIndex: 1200,
+          transform: showGlossary ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          display: 'flex', flexDirection: 'column',
+          boxShadow: showGlossary ? '-8px 0 32px rgba(0,0,0,0.5)' : 'none',
+        }}
+      >
+        {/* Panel header */}
+        <div style={{
+          padding: '1.25rem 1.5rem',
+          borderBottom: `1px solid ${C.border}`,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          backgroundColor: C.surface, flexShrink: 0,
+        }}>
+          <div>
+            <div style={{ fontFamily: C.fontDisplay, fontWeight: '700', fontSize: '1rem', color: C.text }}>Stats Glossary</div>
+            <div style={{ fontFamily: C.fontCond, fontSize: '0.6rem', color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: '0.2rem' }}>Stat Definitions & Methodology</div>
+          </div>
+          <button
+            onClick={() => setShowGlossary(false)}
             style={{
-              backgroundColor: C.bg,
-              border: `1px solid ${C.border}`,
-              borderRadius: 10,
-              maxWidth: '720px', width: '90%',
-              maxHeight: '85vh', overflowY: 'auto',
-              padding: '2rem',
-              marginBottom: '3rem',
+              backgroundColor: 'transparent', color: C.muted,
+              border: `1px solid ${C.border}`, borderRadius: 6,
+              padding: '0.4rem 0.875rem', cursor: 'pointer',
+              fontFamily: C.font, fontSize: '0.78rem',
+              transition: 'color 0.15s, border-color 0.15s',
             }}
+            onMouseEnter={e => { e.currentTarget.style.color = C.text; e.currentTarget.style.borderColor = C.borderBright }}
+            onMouseLeave={e => { e.currentTarget.style.color = C.muted; e.currentTarget.style.borderColor = C.border }}
           >
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              marginBottom: '1.5rem', borderBottom: `1px solid ${C.border}`, paddingBottom: '1rem',
-            }}>
-              <h2 style={{ color: C.text, margin: 0, fontSize: '1.125rem', fontWeight: '700' }}>Stats Glossary</h2>
-              <button
-                onClick={() => setShowGlossary(false)}
-                style={{
-                  backgroundColor: 'transparent', color: C.muted,
-                  border: `1px solid ${C.border}`, borderRadius: 6,
-                  padding: '0.3rem 0.75rem', cursor: 'pointer',
-                  fontFamily: C.font, fontSize: '0.8rem',
-                }}
-              >
-                ✕ Close
-              </button>
-            </div>
+            ✕
+          </button>
+        </div>
 
-            {GLOSSARY.map(group => (
-              <div key={group.section} style={{ marginBottom: '1.5rem' }}>
-                <h3 style={{
-                  color: C.gold, fontSize: '0.7rem', fontWeight: '700',
-                  letterSpacing: '0.1em', textTransform: 'uppercase',
-                  marginBottom: '0.75rem', borderBottom: `1px solid ${C.border}`,
-                  paddingBottom: '0.25rem',
-                }}>
-                  {group.section}
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                  {group.items.map(item => (
-                    <div key={item.abbr + group.section} style={{
-                      display: 'grid', gridTemplateColumns: '56px 1fr',
-                      gap: '0.75rem', padding: '0.35rem 0',
-                      borderBottom: `1px solid ${C.border}`,
-                    }}>
-                      <span style={{ color: C.gold, fontWeight: '700', fontSize: '0.78rem' }}>{item.abbr}</span>
-                      <div>
-                        <span style={{ color: C.text, fontSize: '0.78rem', fontWeight: '600' }}>{item.name} </span>
-                        <span style={{ color: C.muted, fontSize: '0.72rem' }}>{item.desc}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+        {/* Scrollable content */}
+        <div style={{ overflowY: 'auto', flex: 1, padding: '1.25rem 1.5rem' }}>
+          {GLOSSARY.map(group => (
+            <div key={group.section} style={{ marginBottom: '1.5rem' }}>
+              <div style={{
+                color: C.gold, fontFamily: C.fontCond, fontSize: '0.65rem', fontWeight: '700',
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                marginBottom: '0.6rem',
+                paddingBottom: '0.35rem',
+                borderBottom: `1px solid ${C.goldBorder}`,
+              }}>
+                {group.section}
               </div>
-            ))}
-
-            <div style={{ color: C.dim, fontSize: '0.65rem', marginTop: '1rem', borderTop: `1px solid ${C.border}`, paddingTop: '0.75rem' }}>
-              NGS metrics sourced from NFL Next Gen Stats (RFID tracking). EPA and seasonal stats sourced from nflfastR play-by-play data via nfl_data_py.
+              {group.items.map(item => (
+                <div key={item.abbr + group.section} style={{
+                  display: 'grid', gridTemplateColumns: '52px 1fr',
+                  gap: '0.75rem', padding: '0.4rem 0',
+                  borderBottom: `1px solid ${C.border}`,
+                }}>
+                  <span style={{ color: C.gold, fontWeight: '700', fontFamily: C.fontStats, fontSize: '0.78rem', paddingTop: '0.05rem' }}>{item.abbr}</span>
+                  <div>
+                    <span style={{ color: C.text, fontFamily: C.font, fontSize: '0.78rem', fontWeight: '600' }}>{item.name}</span>
+                    <div style={{ color: C.muted, fontFamily: C.font, fontSize: '0.71rem', marginTop: '0.15rem', lineHeight: 1.5 }}>{item.desc}</div>
+                  </div>
+                </div>
+              ))}
             </div>
+          ))}
+          <div style={{ color: C.dim, fontFamily: C.font, fontSize: '0.65rem', marginTop: '0.75rem', borderTop: `1px solid ${C.border}`, paddingTop: '0.75rem', lineHeight: 1.6 }}>
+            NGS metrics sourced from NFL Next Gen Stats (RFID tracking, 10Hz). EPA and seasonal stats from nflfastR PBP data via nfl_data_py.
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
