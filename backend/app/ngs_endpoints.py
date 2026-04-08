@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
 
-from sqlalchemy import and_
+from sqlalchemy import and_, text
 from .database import get_db, NGSPassing, NGSReceiving, NGSRushing, NGSDefense, SeasonalStats, Plays
 from .ngs_scraper import NGSDataImporter
 
@@ -947,8 +947,7 @@ def get_league_team_stats(
 ):
     """
     Return aggregated stats for all 32 teams, ranked for leaderboard display.
-    side=offense returns passing + rushing + receiving aggregates.
-    side=defense returns defensive aggregates (allowed stats where available).
+    Merges NGS tracking data with PBP-derived EPA, yards, scoring, and situational stats.
     """
     from sqlalchemy import func
 
@@ -959,140 +958,257 @@ def get_league_team_stats(
         'NYJ', 'PHI', 'PIT', 'SEA', 'SF', 'TB', 'TEN', 'WAS',
     ]
 
-    def round_or_none(val, places=1):
-        return round(float(val), places) if val is not None else None
+    def r1(v): return round(float(v), 1) if v is not None else None
+    def r2(v): return round(float(v), 2) if v is not None else None
+    def r3(v): return round(float(v), 3) if v is not None else None
+    def ri(v): return int(v) if v is not None else None
+
+    def passer_rating(cmp, att, yds, tds, ints):
+        if not att:
+            return None
+        a = max(0.0, min(2.375, (cmp / att - 0.3) / 0.2))
+        b = max(0.0, min(2.375, (yds / att - 3.0) / 4.0))
+        c = max(0.0, min(2.375, (tds / att) / 0.05))
+        d = max(0.0, min(2.375, (0.095 - ints / att) / 0.04))
+        return round((a + b + c + d) / 6.0 * 100.0, 1)
+
+    week_filter = "AND week = :week" if week > 0 else ""
+
+    # ── PBP offense aggregation ───────────────────────────────────────────────
+    off_pbp_sql = text(f"""
+        SELECT
+            posteam                                                                AS team,
+            COUNT(DISTINCT game_id)                                                AS gp,
+            ROUND(AVG(CASE WHEN (pass_attempt=1 OR rush_attempt=1) AND epa IS NOT NULL THEN epa END), 3) AS epa_per_play,
+            ROUND(AVG(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 AND epa IS NOT NULL THEN epa END), 3) AS epa_per_pass,
+            ROUND(AVG(CASE WHEN rush_attempt=1 AND epa IS NOT NULL THEN epa END), 3)                       AS epa_per_rush,
+            SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 THEN 1 ELSE 0 END)                        AS pass_att,
+            SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 THEN COALESCE(complete_pass,0) ELSE 0 END) AS completions,
+            SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 THEN COALESCE(yards_gained,0) ELSE 0 END)  AS pass_yds,
+            SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 THEN COALESCE(touchdown,0) ELSE 0 END)     AS pass_tds,
+            SUM(CASE WHEN pass_attempt=1 THEN COALESCE(interception,0) ELSE 0 END)                         AS ints,
+            SUM(CASE WHEN COALESCE(sack,0)=1 THEN 1 ELSE 0 END)                                           AS sacks_taken,
+            SUM(CASE WHEN rush_attempt=1 THEN 1 ELSE 0 END)                                               AS rush_att,
+            SUM(CASE WHEN rush_attempt=1 THEN COALESCE(yards_gained,0) ELSE 0 END)                        AS rush_yds,
+            SUM(CASE WHEN rush_attempt=1 THEN COALESCE(touchdown,0) ELSE 0 END)                           AS rush_tds,
+            SUM(CASE WHEN rush_attempt=1 AND COALESCE(first_down,0)=1 THEN 1 ELSE 0 END)                  AS rush_first_dns,
+            SUM(CASE WHEN pass_attempt=1 AND COALESCE(first_down,0)=1 THEN 1 ELSE 0 END)                  AS pass_first_dns,
+            SUM(CASE WHEN COALESCE(complete_pass,0)=1 AND air_yards IS NOT NULL THEN air_yards ELSE 0 END) AS cay_total,
+            SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 AND COALESCE(number_of_pass_rushers,0)>=5 THEN 1 ELSE 0 END) AS blitz_faced,
+            SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 AND number_of_pass_rushers IS NOT NULL THEN 1 ELSE 0 END)    AS pass_with_rushers,
+            SUM(CASE WHEN COALESCE(play_action,0)=1 THEN 1 ELSE 0 END)                                    AS play_action_plays,
+            SUM(CASE WHEN pass_attempt=1 THEN 1 ELSE 0 END)                                               AS total_dropbacks
+        FROM plays
+        WHERE season = :season AND season_type = 'REG' AND posteam IS NOT NULL
+        {week_filter}
+        GROUP BY posteam
+    """)
+
+    ppg_sql = text(f"""
+        SELECT posteam AS team, ROUND(AVG(team_score), 1) AS ppg
+        FROM (
+            SELECT game_id, posteam,
+                   MAX(CASE WHEN home_team=posteam THEN home_score ELSE away_score END) AS team_score
+            FROM plays
+            WHERE season = :season AND season_type = 'REG' AND posteam IS NOT NULL
+            {week_filter}
+            GROUP BY game_id, posteam
+        )
+        GROUP BY posteam
+    """)
+
+    params = {"season": season, "week": week} if week > 0 else {"season": season}
+    off_pbp = {r.team: r for r in db.execute(off_pbp_sql, params).fetchall()}
+    ppg_map = {r.team: float(r.ppg) for r in db.execute(ppg_sql, params).fetchall()}
 
     if side == "offense":
-        # ── Passing ──────────────────────────────────────────────────────────
+        # ── NGS Passing ───────────────────────────────────────────────────────
         pass_rows = db.query(
             NGSPassing.team_abbr,
-            func.sum(NGSPassing.attempts).label('pass_att'),
-            func.sum(NGSPassing.completions).label('completions'),
-            func.sum(NGSPassing.pass_yards).label('pass_yards'),
-            func.sum(NGSPassing.pass_touchdowns).label('pass_tds'),
-            func.sum(NGSPassing.interceptions).label('ints'),
             func.avg(NGSPassing.avg_time_to_throw).label('ttt'),
             func.avg(NGSPassing.completion_percentage_above_expectation).label('cpoe'),
             func.avg(NGSPassing.aggressiveness).label('aggr'),
             func.avg(NGSPassing.avg_intended_air_yards).label('iay'),
             func.avg(NGSPassing.avg_completed_air_yards).label('cay'),
-        ).filter(
-            NGSPassing.season == season,
-            NGSPassing.week == week,
-        ).group_by(NGSPassing.team_abbr).all()
-
+        ).filter(NGSPassing.season == season, NGSPassing.week == week).group_by(NGSPassing.team_abbr).all()
         pass_map = {r.team_abbr: r for r in pass_rows}
 
-        # ── Rushing ──────────────────────────────────────────────────────────
+        # ── NGS Rushing ───────────────────────────────────────────────────────
         rush_rows = db.query(
             NGSRushing.team_abbr,
-            func.sum(NGSRushing.rush_attempts).label('rush_att'),
-            func.sum(NGSRushing.rush_yards).label('rush_yards'),
-            func.sum(NGSRushing.rush_touchdowns).label('rush_tds'),
-            func.avg(NGSRushing.avg_rush_yards).label('ypc'),
             func.avg(NGSRushing.efficiency).label('eff'),
             func.sum(NGSRushing.rush_yards_over_expected).label('ryoe'),
             func.avg(NGSRushing.rush_yards_over_expected_per_att).label('ryoe_per_att'),
             func.avg(NGSRushing.percent_attempts_gte_eight_defenders).label('stacked_pct'),
             func.avg(NGSRushing.avg_time_to_los).label('ttlos'),
-        ).filter(
-            NGSRushing.season == season,
-            NGSRushing.week == week,
-        ).group_by(NGSRushing.team_abbr).all()
-
+        ).filter(NGSRushing.season == season, NGSRushing.week == week).group_by(NGSRushing.team_abbr).all()
         rush_map = {r.team_abbr: r for r in rush_rows}
 
-        # ── Receiving ────────────────────────────────────────────────────────
+        # ── NGS Receiving ─────────────────────────────────────────────────────
         rec_rows = db.query(
             NGSReceiving.team_abbr,
             func.avg(NGSReceiving.avg_separation).label('avg_sep'),
             func.avg(NGSReceiving.avg_yac).label('avg_yac'),
             func.avg(NGSReceiving.avg_yac_above_expectation).label('yac_plus'),
             func.avg(NGSReceiving.avg_intended_air_yards).label('adot'),
-        ).filter(
-            NGSReceiving.season == season,
-            NGSReceiving.week == week,
-        ).group_by(NGSReceiving.team_abbr).all()
-
+        ).filter(NGSReceiving.season == season, NGSReceiving.week == week).group_by(NGSReceiving.team_abbr).all()
         rec_map = {r.team_abbr: r for r in rec_rows}
 
         results = []
         for team in NFL_TEAMS:
+            pbp = off_pbp.get(team)
             p = pass_map.get(team)
             r = rush_map.get(team)
             rec = rec_map.get(team)
-            if p is None and r is None:
+            if pbp is None and p is None and r is None:
                 continue
 
-            pass_att = int(p.pass_att or 0) if p else 0
-            rush_att = int(r.rush_att or 0) if r else 0
+            gp = int(pbp.gp) if pbp else None
+            pass_att  = int(pbp.pass_att or 0) if pbp else 0
+            rush_att  = int(pbp.rush_att or 0) if pbp else 0
             total_plays = pass_att + rush_att
-            pass_pct = round(pass_att / total_plays * 100, 1) if total_plays else None
+            pass_pct  = round(pass_att / total_plays * 100, 1) if total_plays else None
 
-            pass_yards = int(p.pass_yards or 0) if p else 0
-            rush_yards = int(r.rush_yards or 0) if r else 0
-            total_yards = pass_yards + rush_yards
-            pass_tds = int(p.pass_tds or 0) if p else 0
-            rush_tds = int(r.rush_tds or 0) if r else 0
+            pass_yds  = int(pbp.pass_yds or 0) if pbp else 0
+            rush_yds  = int(pbp.rush_yds or 0) if pbp else 0
+            total_yds = pass_yds + rush_yds
+
+            pass_tds  = int(pbp.pass_tds or 0) if pbp else 0
+            rush_tds  = int(pbp.rush_tds or 0) if pbp else 0
             total_tds = pass_tds + rush_tds
 
-            completions = int(p.completions or 0) if p else 0
-            comp_pct = round(completions / pass_att * 100, 1) if pass_att else None
+            completions = int(pbp.completions or 0) if pbp else 0
+            comp_pct    = round(completions / pass_att * 100, 1) if pass_att else None
+
+            rating = passer_rating(
+                completions, pass_att, pass_yds,
+                int(pbp.pass_tds or 0) if pbp else 0,
+                int(pbp.ints or 0) if pbp else 0,
+            ) if pbp else None
+
+            cay_total = float(pbp.cay_total or 0) if pbp else None
+            cay_per_cmp = round(cay_total / completions, 1) if (cay_total and completions) else None
+
+            blitz_faced = int(pbp.blitz_faced or 0) if pbp else 0
+            pass_with_rushers = int(pbp.pass_with_rushers or 0) if pbp else 0
+            blitz_pct = round(blitz_faced / pass_with_rushers * 100, 1) if pass_with_rushers else None
+
+            play_action_plays = int(pbp.play_action_plays or 0) if pbp else 0
+            dropbacks = int(pbp.total_dropbacks or 0) if pbp else 0
+            play_action_pct = round(play_action_plays / dropbacks * 100, 1) if dropbacks else None
+
+            sacks_taken = int(pbp.sacks_taken or 0) if pbp else 0
+            rush_1st = int(pbp.rush_first_dns or 0) if pbp else None
+            pass_1st = int(pbp.pass_first_dns or 0) if pbp else None
 
             results.append({
                 "team": team,
                 "season": season,
-                # Plays
+                "gp": gp,
+                # Volume
                 "total_plays": total_plays,
                 "pass_plays": pass_att,
                 "rush_plays": rush_att,
                 "pass_pct": pass_pct,
-                # Scoring (requires PBP)
-                "ppg": None,
-                "ypg": round(total_yards / 17, 1) if total_yards else None,
-                "ypp": round(total_yards / total_plays, 1) if total_plays else None,
+                # Scoring
+                "ppg": ppg_map.get(team),
+                "ypg": round(total_yds / gp, 1) if (total_yds and gp) else None,
+                "ypp": round(total_yds / total_plays, 1) if total_plays else None,
                 "total_tds": total_tds,
-                # EPA (requires PBP)
-                "epa_per_play": None,
-                "epa_per_pass": None,
-                "epa_per_rush": None,
-                # Passing stats
+                # EPA
+                "epa_per_play": r3(pbp.epa_per_play) if pbp else None,
+                "epa_per_pass": r3(pbp.epa_per_pass) if pbp else None,
+                "epa_per_rush": r3(pbp.epa_per_rush) if pbp else None,
+                # Passing
                 "completions": completions,
                 "pass_att": pass_att,
                 "comp_pct": comp_pct,
-                "pass_yards": pass_yards,
-                "pass_ypg": round(pass_yards / 17, 1) if pass_yards else None,
-                "pass_ypp": round(pass_yards / pass_att, 1) if pass_att else None,
+                "pass_yards": pass_yds,
+                "pass_ypg": round(pass_yds / gp, 1) if (pass_yds and gp) else None,
+                "pass_ypp": round(pass_yds / pass_att, 1) if pass_att else None,
                 "pass_tds": pass_tds,
-                "interceptions": int(p.ints or 0) if p else None,
-                "ttt": round_or_none(p.ttt, 2) if p else None,
-                "cpoe": round_or_none(p.cpoe, 1) if p else None,
-                "aggr": round_or_none(p.aggr, 1) if p else None,
-                "iay": round_or_none(p.iay, 1) if p else None,
-                # Rushing stats
+                "interceptions": int(pbp.ints or 0) if pbp else None,
+                "passer_rating": rating,
+                "sacks_taken": sacks_taken,
+                "pass_first_downs": pass_1st,
+                "cay": r1(cay_total),
+                "cay_per_cmp": cay_per_cmp,
+                # NGS Passing tracking
+                "ttt": r2(p.ttt) if p else None,
+                "cpoe": r1(p.cpoe) if p else None,
+                "aggr": r1(p.aggr) if p else None,
+                "iay": r1(p.iay) if p else None,
+                # Rushing
                 "rush_att": rush_att,
-                "rush_yards": rush_yards,
-                "rush_ypg": round(rush_yards / 17, 1) if rush_yards else None,
-                "rush_ypp": round_or_none(r.ypc, 1) if r else None,
+                "rush_yards": rush_yds,
+                "rush_ypg": round(rush_yds / gp, 1) if (rush_yds and gp) else None,
+                "rush_ypp": round(rush_yds / rush_att, 1) if rush_att else None,
                 "rush_tds": rush_tds,
-                "eff": round_or_none(r.eff, 2) if r else None,
-                "ryoe": round(float(r.ryoe), 0) if r and r.ryoe else None,
-                "ryoe_per_att": round_or_none(r.ryoe_per_att, 2) if r else None,
-                "stacked_pct": round_or_none(r.stacked_pct, 1) if r else None,
-                "ttlos": round_or_none(r.ttlos, 2) if r else None,
-                # Receiving
-                "avg_sep": round_or_none(rec.avg_sep, 1) if rec else None,
-                "avg_yac": round_or_none(rec.avg_yac, 1) if rec else None,
-                "yac_plus": round_or_none(rec.yac_plus, 2) if rec else None,
-                "adot": round_or_none(rec.adot, 1) if rec else None,
+                "rush_first_downs": rush_1st,
+                # NGS Rushing tracking
+                "eff": r2(r.eff) if r else None,
+                "ryoe": round(float(r.ryoe), 0) if (r and r.ryoe) else None,
+                "ryoe_per_att": r2(r.ryoe_per_att) if r else None,
+                "stacked_pct": r1(r.stacked_pct) if r else None,
+                "ttlos": r2(r.ttlos) if r else None,
+                # Situational
+                "blitz_pct": blitz_pct,
+                "play_action_pct": play_action_pct,
+                # NGS Receiving tracking
+                "avg_sep": r1(rec.avg_sep) if rec else None,
+                "avg_yac": r1(rec.avg_yac) if rec else None,
+                "yac_plus": r2(rec.yac_plus) if rec else None,
+                "adot": r1(rec.adot) if rec else None,
             })
 
-        # Sort by total yards desc by default
-        results.sort(key=lambda x: x.get('total_yards') or 0, reverse=True)
+        results.sort(key=lambda x: x.get('epa_per_play') or -99, reverse=True)
         return results
 
     else:  # defense
-        # Aggregate defensive player stats by team
+        # ── PBP defense aggregation ───────────────────────────────────────────
+        def_pbp_sql = text(f"""
+            SELECT
+                defteam                                                                    AS team,
+                COUNT(DISTINCT game_id)                                                    AS gp,
+                ROUND(AVG(CASE WHEN (pass_attempt=1 OR rush_attempt=1) AND epa IS NOT NULL THEN epa END), 3) AS epa_per_play_allowed,
+                ROUND(AVG(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 AND epa IS NOT NULL THEN epa END), 3) AS epa_per_pass_allowed,
+                ROUND(AVG(CASE WHEN rush_attempt=1 AND epa IS NOT NULL THEN epa END), 3)                       AS epa_per_rush_allowed,
+                SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 THEN COALESCE(yards_gained,0) ELSE 0 END) AS pass_yds_allowed,
+                SUM(CASE WHEN rush_attempt=1 THEN COALESCE(yards_gained,0) ELSE 0 END)                        AS rush_yds_allowed,
+                SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 THEN 1 ELSE 0 END)                        AS pass_att_against,
+                SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 THEN COALESCE(complete_pass,0) ELSE 0 END) AS pass_cmp_against,
+                SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 THEN COALESCE(touchdown,0) ELSE 0 END)     AS pass_td_against,
+                SUM(CASE WHEN pass_attempt=1 THEN COALESCE(interception,0) ELSE 0 END)                         AS ints_forced,
+                SUM(CASE WHEN rush_attempt=1 THEN 1 ELSE 0 END)                                               AS rush_att_against,
+                SUM(CASE WHEN rush_attempt=1 THEN COALESCE(touchdown,0) ELSE 0 END)                           AS rush_td_against,
+                SUM(CASE WHEN rush_attempt=1 AND COALESCE(first_down,0)=1 THEN 1 ELSE 0 END)                  AS rush_first_dn_against,
+                SUM(CASE WHEN COALESCE(number_of_pass_rushers,0)>=5 AND pass_attempt=1 THEN 1 ELSE 0 END)     AS blitz_plays,
+                SUM(CASE WHEN pass_attempt=1 AND number_of_pass_rushers IS NOT NULL THEN 1 ELSE 0 END)        AS pass_with_rushers,
+                SUM(CASE WHEN rush_attempt=1 AND COALESCE(defenders_in_box,0)>=8 THEN 1 ELSE 0 END)           AS stacked_plays,
+                SUM(CASE WHEN rush_attempt=1 AND defenders_in_box IS NOT NULL THEN 1 ELSE 0 END)              AS rush_with_box
+            FROM plays
+            WHERE season = :season AND season_type = 'REG' AND defteam IS NOT NULL
+            {week_filter}
+            GROUP BY defteam
+        """)
+
+        ppg_allowed_sql = text(f"""
+            SELECT defteam AS team, ROUND(AVG(opp_score), 1) AS ppg_allowed
+            FROM (
+                SELECT game_id, defteam,
+                       MAX(CASE WHEN home_team!=defteam THEN home_score ELSE away_score END) AS opp_score
+                FROM plays
+                WHERE season = :season AND season_type = 'REG' AND defteam IS NOT NULL
+                {week_filter}
+                GROUP BY game_id, defteam
+            )
+            GROUP BY defteam
+        """)
+
+        def_pbp = {r.team: r for r in db.execute(def_pbp_sql, params).fetchall()}
+        ppg_allowed_map = {r.team: float(r.ppg_allowed) for r in db.execute(ppg_allowed_sql, params).fetchall()}
+
+        # ── NGS Defense (player-level, aggregated to team) ────────────────────
         def_rows = db.query(
             NGSDefense.team_abbr,
             func.sum(NGSDefense.sacks).label('sacks'),
@@ -1103,47 +1219,92 @@ def get_league_team_stats(
             func.sum(NGSDefense.interceptions).label('ints'),
             func.sum(NGSDefense.pass_breakups).label('pbu'),
             func.sum(NGSDefense.forced_fumbles).label('ff'),
-            func.avg(NGSDefense.passer_rating_allowed).label('pr_allowed'),
-            func.avg(NGSDefense.avg_time_to_pressure).label('ttp'),
-        ).filter(
-            NGSDefense.season == season,
-            NGSDefense.week == week,
-        ).group_by(NGSDefense.team_abbr).all()
-
+        ).filter(NGSDefense.season == season, NGSDefense.week == week).group_by(NGSDefense.team_abbr).all()
         def_map = {r.team_abbr: r for r in def_rows}
 
         results = []
         for team in NFL_TEAMS:
             d = def_map.get(team)
-            if d is None:
+            pbp = def_pbp.get(team)
+            if d is None and pbp is None:
                 continue
-            sacks = float(d.sacks or 0)
-            pressures = int(d.pressures or 0)
+
+            gp = int(pbp.gp) if pbp else None
+
+            # PBP-derived
+            pass_yds_allowed = int(pbp.pass_yds_allowed or 0) if pbp else None
+            rush_yds_allowed = int(pbp.rush_yds_allowed or 0) if pbp else None
+            total_yds_allowed = (pass_yds_allowed or 0) + (rush_yds_allowed or 0) if pbp else None
+
+            pass_att_ag  = int(pbp.pass_att_against or 0) if pbp else 0
+            pass_cmp_ag  = int(pbp.pass_cmp_against or 0) if pbp else 0
+            pass_ypp_ag  = round(pass_yds_allowed / pass_att_ag, 1) if (pass_yds_allowed and pass_att_ag) else None
+            comp_pct_ag  = round(pass_cmp_ag / pass_att_ag * 100, 1) if pass_att_ag else None
+            rush_att_ag  = int(pbp.rush_att_against or 0) if pbp else 0
+            rush_ypc_ag  = round(rush_yds_allowed / rush_att_ag, 1) if (rush_yds_allowed and rush_att_ag) else None
+
+            pr_allowed = passer_rating(
+                pass_cmp_ag, pass_att_ag, pass_yds_allowed or 0,
+                int(pbp.pass_td_against or 0) if pbp else 0,
+                int(pbp.ints_forced or 0) if pbp else 0,
+            ) if pbp else None
+
+            blitz_plays   = int(pbp.blitz_plays or 0) if pbp else 0
+            pass_w_rush   = int(pbp.pass_with_rushers or 0) if pbp else 0
+            blitz_rate    = round(blitz_plays / pass_w_rush * 100, 1) if pass_w_rush else None
+
+            stacked_plays = int(pbp.stacked_plays or 0) if pbp else 0
+            rush_w_box    = int(pbp.rush_with_box or 0) if pbp else 0
+            stacked_rate  = round(stacked_plays / rush_w_box * 100, 1) if rush_w_box else None
+
+            sacks = float(d.sacks or 0) if d else 0.0
+            sack_rate = round(sacks / pass_att_ag * 100, 1) if pass_att_ag else None
+
             results.append({
                 "team": team,
                 "season": season,
+                "gp": gp,
+                # Scoring allowed
+                "ppg_allowed": ppg_allowed_map.get(team),
+                # Yards allowed
+                "total_yds_allowed": total_yds_allowed,
+                "pass_yds_allowed": pass_yds_allowed,
+                "rush_yds_allowed": rush_yds_allowed,
+                "pass_ypg_allowed": round(pass_yds_allowed / gp, 1) if (pass_yds_allowed and gp) else None,
+                "rush_ypg_allowed": round(rush_yds_allowed / gp, 1) if (rush_yds_allowed and gp) else None,
+                "total_ypg_allowed": round(total_yds_allowed / gp, 1) if (total_yds_allowed and gp) else None,
+                # EPA allowed
+                "epa_per_play_allowed": r3(pbp.epa_per_play_allowed) if pbp else None,
+                "epa_per_pass_allowed": r3(pbp.epa_per_pass_allowed) if pbp else None,
+                "epa_per_rush_allowed": r3(pbp.epa_per_rush_allowed) if pbp else None,
+                # Pass defense
+                "pass_att_against": pass_att_ag,
+                "pass_cmp_against": pass_cmp_ag,
+                "comp_pct_allowed": comp_pct_ag,
+                "pass_ypp_allowed": pass_ypp_ag,
+                "pass_td_against": ri(pbp.pass_td_against) if pbp else None,
+                "ints_forced": ri(pbp.ints_forced) if pbp else None,
+                "passer_rating_allowed": pr_allowed,
                 "sacks": round(sacks, 1),
-                "sack_pct": None,
-                "qb_hits": int(d.qb_hits or 0),
-                "pressures": pressures,
-                "pressure_pct": None,
-                "tackles": int(d.tackles or 0),
-                "tfl": int(d.tfl or 0),
-                "interceptions": int(d.ints or 0),
-                "pass_breakups": int(d.pbu or 0),
-                "forced_fumbles": int(d.ff or 0),
-                "passer_rating_allowed": round_or_none(d.pr_allowed, 1),
-                "ttp": round_or_none(d.ttp, 2),
-                # These require PBP data
-                "pass_yards_allowed": None,
-                "rush_yards_allowed": None,
-                "pass_ypg_allowed": None,
-                "rush_ypg_allowed": None,
-                "epa_per_pass_allowed": None,
-                "epa_per_rush_allowed": None,
+                "sack_rate": sack_rate,
+                # Rush defense
+                "rush_att_against": rush_att_ag,
+                "rush_ypc_allowed": rush_ypc_ag,
+                "rush_td_against": ri(pbp.rush_td_against) if pbp else None,
+                "rush_first_dn_against": ri(pbp.rush_first_dn_against) if pbp else None,
+                # NGS Defense (tracking)
+                "qb_hits": ri(d.qb_hits) if d else None,
+                "pressures": ri(d.pressures) if d else None,
+                "tackles": ri(d.tackles) if d else None,
+                "tfl": ri(d.tfl) if d else None,
+                "pass_breakups": ri(d.pbu) if d else None,
+                "forced_fumbles": ri(d.ff) if d else None,
+                # Situational
+                "blitz_rate": blitz_rate,
+                "stacked_box_rate": stacked_rate,
             })
 
-        results.sort(key=lambda x: x.get('sacks') or 0, reverse=True)
+        results.sort(key=lambda x: x.get('epa_per_play_allowed') or 99, reverse=False)
         return results
 
 

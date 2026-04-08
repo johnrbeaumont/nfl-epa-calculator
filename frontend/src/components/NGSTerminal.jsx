@@ -1740,65 +1740,105 @@ function NGSTerminal({ onNavigate }) {
           ══════════════════════════════════════════════════════════════ */}
           {teamsView === 'league' && (() => {
             // ── Column definitions ──────────────────────────────────────
+            const fmtEpa = v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(3) : '-'
+            const fmtSgn = (v, d=1) => v != null ? (v >= 0 ? '+' : '') + v.toFixed(d) : '-'
+
             const offSummaryCols = [
-              { key: 'total_plays', label: 'Plays', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'pass_plays', label: 'Pass', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'rush_plays', label: 'Rush', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'pass_pct', label: 'Pass%', fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
-              { key: 'ypg', label: 'YPG', fmt: v => v != null ? v.toFixed(1) : '-' },
-              { key: 'ypp', label: 'YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
-              { key: 'total_tds', label: 'TDs', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'pass_ypg', label: 'Pass YPG', fmt: v => v != null ? v.toFixed(1) : '-' },
-              { key: 'pass_ypp', label: 'Pass YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
-              { key: 'rush_ypg', label: 'Rush YPG', fmt: v => v != null ? v.toFixed(1) : '-' },
-              { key: 'rush_ypp', label: 'Rush YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
-              { key: 'ttt', label: 'TTT', fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
-              { key: 'cpoe', label: 'CPOE', isEPA: true, isSigned: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(1) : '-' },
+              { key: 'gp',          label: 'GP',       isBox: true, fmt: v => v ?? '-' },
+              { key: 'ppg',         label: 'PPG',      isBox: true, fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'ypg',         label: 'YPG',      fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'ypp',         label: 'YPP',      fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'total_tds',   label: 'TD',       isBox: true, fmt: v => v ?? '-' },
+              { key: 'epa_per_play',label: 'EPA/Play', isEPA: true, sortDefault: true, fmt: fmtEpa },
+              { key: 'epa_per_pass',label: 'EPA/Pass', isEPA: true, fmt: fmtEpa },
+              { key: 'epa_per_rush',label: 'EPA/Rush', isEPA: true, fmt: fmtEpa },
+              { key: 'pass_ypg',    label: 'Pass YPG', fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'pass_ypp',    label: 'Pass YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'rush_ypg',    label: 'Rush YPG', fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'rush_ypp',    label: 'Rush YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'pass_pct',    label: 'Pass%',    fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'ttt',         label: 'TTT',      fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
+              { key: 'blitz_pct',   label: 'Blitz Fc%',fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'cpoe',        label: 'CPOE',     isEPA: true, fmt: v => fmtSgn(v) + (v != null ? '%' : '') },
             ]
             const offPassingCols = [
-              { key: 'pass_plays', label: 'Att', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'completions', label: 'Cmp', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'comp_pct', label: 'Cmp%', fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
-              { key: 'pass_ypg', label: 'YPG', sortDefault: true, fmt: v => v != null ? v.toFixed(1) : '-' },
-              { key: 'pass_ypp', label: 'YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
-              { key: 'pass_tds', label: 'TD', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'interceptions', label: 'INT', fmt: v => v != null ? v : '-' },
-              { key: 'ttt', label: 'TTT', fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
-              { key: 'cpoe', label: 'CPOE', isEPA: true, isSigned: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(1) : '-' },
-              { key: 'aggr', label: 'Aggr%', fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
-              { key: 'iay', label: 'IAY', fmt: v => v != null ? v.toFixed(1) : '-' },
-              { key: 'avg_yac', label: 'YAC', fmt: v => v != null ? v.toFixed(1) : '-' },
-              { key: 'yac_plus', label: 'YAC+', isEPA: true, isSigned: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '-' },
-              { key: 'avg_sep', label: 'Sep', fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'pass_att',      label: 'Att',     isBox: true, fmt: v => v ?? '-' },
+              { key: 'completions',   label: 'Cmp',     isBox: true, fmt: v => v ?? '-' },
+              { key: 'comp_pct',      label: 'Cmp%',    fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'pass_yards',    label: 'Yds',     isBox: true, fmt: v => v ?? '-' },
+              { key: 'pass_ypg',      label: 'YPG',     sortDefault: true, fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'pass_ypp',      label: 'Yds/Att', fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'pass_tds',      label: 'TD',      isBox: true, fmt: v => v ?? '-' },
+              { key: 'interceptions', label: 'INT',     fmt: v => v ?? '-' },
+              { key: 'passer_rating', label: 'Rate',    isBox: true, fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'sacks_taken',   label: 'Sack',    fmt: v => v ?? '-' },
+              { key: 'epa_per_pass',  label: 'EPA/Pass',isEPA: true, fmt: fmtEpa },
+              { key: 'ttt',           label: 'TTT',     fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
+              { key: 'cpoe',          label: 'CPOE',    isEPA: true, fmt: v => fmtSgn(v) + (v != null ? '%' : '') },
+              { key: 'aggr',          label: 'Aggr%',   fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'iay',           label: 'IAY',     fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'cay_per_cmp',   label: 'CAY/Cmp', fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'avg_yac',       label: 'YAC/Rec', fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'adot',          label: 'ADOT',    fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'avg_sep',       label: 'Sep',     fmt: v => v != null ? v.toFixed(1) : '-' },
             ]
             const offRushingCols = [
-              { key: 'rush_plays', label: 'Att', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: '_rush_pct', label: 'Rush%', fmt: (v, row) => row && row.pass_pct != null ? (100 - row.pass_pct).toFixed(1) + '%' : '-', computed: true },
-              { key: 'rush_ypg', label: 'YPG', sortDefault: true, fmt: v => v != null ? v.toFixed(1) : '-' },
-              { key: 'rush_ypp', label: 'YPP', fmt: v => v != null ? v.toFixed(2) : '-' },
-              { key: 'rush_tds', label: 'TD', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'eff', label: 'Eff', isEPA: true, fmt: v => v != null ? v.toFixed(2) : '-' },
-              { key: 'ryoe', label: 'RYOE', isEPA: true, isSigned: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + Math.round(v) : '-' },
-              { key: 'ryoe_per_att', label: 'YOE/A', isEPA: true, isSigned: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '-' },
-              { key: 'stacked_pct', label: 'Box%', fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
-              { key: 'ttlos', label: 'TTLOS', fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
+              { key: 'rush_att',       label: 'Att',     isBox: true, fmt: v => v ?? '-' },
+              { key: 'rush_yards',     label: 'Yds',     isBox: true, fmt: v => v ?? '-' },
+              { key: 'rush_ypg',       label: 'YPG',     sortDefault: true, fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'rush_ypp',       label: 'YPC',     fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'rush_tds',       label: 'TD',      isBox: true, fmt: v => v ?? '-' },
+              { key: 'rush_first_downs',label: '1st Dn', fmt: v => v ?? '-' },
+              { key: 'epa_per_rush',   label: 'EPA/Rush',isEPA: true, fmt: fmtEpa },
+              { key: 'eff',            label: 'Eff',     isEPA: true, fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'ryoe',           label: 'RYOE',    isEPA: true, fmt: v => fmtSgn(v != null ? Math.round(v) : null, 0) },
+              { key: 'ryoe_per_att',   label: 'RYOE/A',  isEPA: true, fmt: v => fmtSgn(v, 2) },
+              { key: 'stacked_pct',    label: 'Box%',    fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'ttlos',          label: 'TTLOS',   fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
             ]
             const defSummaryCols = [
-              { key: 'sacks', label: 'Sacks', isBox: true, sortDefault: true, fmt: v => v != null ? v : '-' },
-              { key: 'qb_hits', label: 'QB Hits', fmt: v => v != null ? v : '-' },
-              { key: 'pressures', label: 'Press', fmt: v => v != null ? v : '-' },
-              { key: 'tfl', label: 'TFL', fmt: v => v != null ? v : '-' },
-              { key: 'interceptions', label: 'INT', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'pass_breakups', label: 'PBU', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'forced_fumbles', label: 'FF', fmt: v => v != null ? v : '-' },
-              { key: 'passer_rating_allowed', label: 'Psr Rtg Alw', fmt: v => v != null ? v.toFixed(1) : '-' },
-              { key: 'ttp', label: 'TTP', fmt: v => v != null ? v.toFixed(2) + 's' : '-' },
+              { key: 'gp',                  label: 'GP',         isBox: true, fmt: v => v ?? '-' },
+              { key: 'ppg_allowed',         label: 'PPG Alw',   isBox: true, fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'total_ypg_allowed',   label: 'YPG Alw',   fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'pass_ypg_allowed',    label: 'Pass YPG',  fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'rush_ypg_allowed',    label: 'Rush YPG',  fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'epa_per_play_allowed',label: 'EPA/Play',  isEPA: true, sortDefault: true, fmt: fmtEpa },
+              { key: 'sacks',               label: 'Sacks',     isBox: true, fmt: v => v != null ? v : '-' },
+              { key: 'sack_rate',           label: 'Sack%',     fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'tfl',                 label: 'TFL',       fmt: v => v ?? '-' },
+              { key: 'ints_forced',         label: 'INT',       isBox: true, fmt: v => v ?? '-' },
+              { key: 'pass_breakups',       label: 'PBU',       fmt: v => v ?? '-' },
+              { key: 'forced_fumbles',      label: 'FF',        fmt: v => v ?? '-' },
+              { key: 'blitz_rate',          label: 'Blitz%',    fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'stacked_box_rate',    label: 'Stack%',    fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+            ]
+            const defPassingCols = [
+              { key: 'pass_att_against',    label: 'Att',       isBox: true, fmt: v => v ?? '-' },
+              { key: 'pass_cmp_against',    label: 'Cmp',       isBox: true, fmt: v => v ?? '-' },
+              { key: 'comp_pct_allowed',    label: 'Cmp%',      fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'pass_yds_allowed',    label: 'Yds',       isBox: true, fmt: v => v ?? '-' },
+              { key: 'pass_ypg_allowed',    label: 'YPG',       sortDefault: true, fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'pass_ypp_allowed',    label: 'Yds/Att',   fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'pass_td_against',     label: 'TD',        fmt: v => v ?? '-' },
+              { key: 'ints_forced',         label: 'INT',       isBox: true, fmt: v => v ?? '-' },
+              { key: 'passer_rating_allowed',label: 'QB Rate',  isBox: true, fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'epa_per_pass_allowed',label: 'EPA/Pass',  isEPA: true, fmt: fmtEpa },
+              { key: 'sacks',               label: 'Sacks',     fmt: v => v != null ? v : '-' },
+              { key: 'sack_rate',           label: 'Sack%',     fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
+              { key: 'qb_hits',             label: 'QB Hits',   fmt: v => v ?? '-' },
+              { key: 'blitz_rate',          label: 'Blitz%',    fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
             ]
             const defRushingCols = [
-              { key: 'tfl', label: 'TFL', fmt: v => v != null ? v : '-' },
-              { key: 'forced_fumbles', label: 'FF', fmt: v => v != null ? v : '-' },
-              { key: 'sacks', label: 'Sacks', isBox: true, fmt: v => v != null ? v : '-' },
-              { key: 'qb_hits', label: 'QB Hits', fmt: v => v != null ? v : '-' },
+              { key: 'rush_att_against',    label: 'Att',       isBox: true, fmt: v => v ?? '-' },
+              { key: 'rush_yds_allowed',    label: 'Yds',       isBox: true, fmt: v => v ?? '-' },
+              { key: 'rush_ypg_allowed',    label: 'YPG',       sortDefault: true, fmt: v => v != null ? v.toFixed(1) : '-' },
+              { key: 'rush_ypc_allowed',    label: 'YPC',       fmt: v => v != null ? v.toFixed(2) : '-' },
+              { key: 'rush_td_against',     label: 'TD',        fmt: v => v ?? '-' },
+              { key: 'rush_first_dn_against',label: '1st Dn',  fmt: v => v ?? '-' },
+              { key: 'epa_per_rush_allowed',label: 'EPA/Rush',  isEPA: true, fmt: fmtEpa },
+              { key: 'tfl',                 label: 'TFL',       fmt: v => v ?? '-' },
+              { key: 'forced_fumbles',      label: 'FF',        fmt: v => v ?? '-' },
+              { key: 'stacked_box_rate',    label: 'Stack%',    fmt: v => v != null ? v.toFixed(1) + '%' : '-' },
             ]
 
             // Pick active columns
@@ -1808,8 +1848,9 @@ function NGSTerminal({ onNavigate }) {
               else if (leagueSubTab === 'passing') activeCols = offPassingCols
               else activeCols = offRushingCols
             } else {
-              if (leagueSubTab === 'rushing') activeCols = defRushingCols
-              else activeCols = defSummaryCols  // summary + passing both use same def cols
+              if (leagueSubTab === 'passing') activeCols = defPassingCols
+              else if (leagueSubTab === 'rushing') activeCols = defRushingCols
+              else activeCols = defSummaryCols
             }
 
             // Sort logic
