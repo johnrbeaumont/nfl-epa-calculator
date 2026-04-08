@@ -22,6 +22,20 @@ class DataSourceError(Exception):
     pass
 
 
+def _safe_int(v):
+    try:
+        return None if v is None or (isinstance(v, float) and v != v) else int(v)
+    except Exception:
+        return None
+
+
+def _safe_float(v):
+    try:
+        return None if v is None or (isinstance(v, float) and v != v) else float(v)
+    except Exception:
+        return None
+
+
 def _retry_fetch(func, *args, retries=MAX_RETRIES, **kwargs):
     """Call func with retry + exponential backoff. Wraps failures in DataSourceError."""
     last_exc = None
@@ -882,6 +896,29 @@ class NGSDataImporter:
         except Exception as e:
             results['plays'] = {'status': 'failed', 'error': str(e)}
 
+        # FTN charting (2022+)
+        ftn_years = [y for y in years if y >= 2022]
+        if ftn_years:
+            try:
+                result = self.import_ftn_enrichment(ftn_years)
+                results['ftn'] = result
+            except Exception as e:
+                results['ftn'] = {'status': 'failed', 'error': str(e)}
+
+        # PFR advanced stats (2018+)
+        pfr_years = [y for y in years if y >= 2018]
+        if pfr_years:
+            try:
+                result = self.import_pfr_passing(pfr_years)
+                results['pfr_passing'] = result
+            except Exception as e:
+                results['pfr_passing'] = {'status': 'failed', 'error': str(e)}
+            try:
+                result = self.import_pfr_rushing(pfr_years)
+                results['pfr_rushing'] = result
+            except Exception as e:
+                results['pfr_rushing'] = {'status': 'failed', 'error': str(e)}
+
         return results
 
     def incremental_refresh(self, season: int = None) -> Dict:
@@ -925,7 +962,233 @@ class NGSDataImporter:
         except Exception as e:
             results['plays'] = {'status': 'failed', 'error': str(e)}
 
+        if season >= 2022:
+            try:
+                result = self.import_ftn_enrichment([season])
+                results['ftn'] = result
+            except Exception as e:
+                results['ftn'] = {'status': 'failed', 'error': str(e)}
+
+        if season >= 2018:
+            try:
+                result = self.import_pfr_passing([season])
+                results['pfr_passing'] = result
+            except Exception as e:
+                results['pfr_passing'] = {'status': 'failed', 'error': str(e)}
+            try:
+                result = self.import_pfr_rushing([season])
+                results['pfr_rushing'] = result
+            except Exception as e:
+                results['pfr_rushing'] = {'status': 'failed', 'error': str(e)}
+
         return results
+
+    def migrate_new_columns(self):
+        """
+        Add newly defined columns to existing SQLite tables.
+        Safe to run multiple times — ignores columns that already exist.
+        """
+        from sqlalchemy import text as sqla_text
+        new_cols = {
+            'plays': [
+                ('ftn_play_action', 'INTEGER'),
+                ('ftn_blitzers', 'INTEGER'),
+                ('ftn_is_rpo', 'INTEGER'),
+                ('ftn_is_screen', 'INTEGER'),
+            ],
+            'ngs_passing': [
+                ('times_pressured', 'INTEGER'),
+                ('times_hurried', 'INTEGER'),
+                ('times_hit_pfr', 'INTEGER'),
+                ('times_blitzed', 'INTEGER'),
+                ('pressure_pct', 'REAL'),
+                ('passing_drops', 'INTEGER'),
+                ('bad_throw_pct', 'REAL'),
+            ],
+            'ngs_rushing': [
+                ('rushing_broken_tackles', 'INTEGER'),
+                ('rushing_yards_before_contact', 'REAL'),
+                ('rushing_yards_after_contact', 'REAL'),
+            ],
+        }
+        conn = self.db.connection()
+        for table, cols in new_cols.items():
+            for col_name, col_type in cols:
+                try:
+                    conn.execute(sqla_text(f'ALTER TABLE {table} ADD COLUMN {col_name} {col_type}'))
+                    logger.info(f"Added column {table}.{col_name}")
+                except Exception:
+                    pass  # column already exists
+        self.db.commit()
+
+    def import_ftn_enrichment(self, years: List[int]) -> Dict:
+        """
+        Enrich plays table with FTN charting data (is_play_action, n_blitzers, is_rpo, is_screen).
+        Available from 2022 onwards.
+        """
+        from sqlalchemy import text as sqla_text
+        total_updated = 0
+        skipped_years = []
+
+        for year in years:
+            if year < 2022:
+                skipped_years.append(year)
+                continue
+            try:
+                logger.info(f"Fetching FTN data for {year}...")
+                ftn = nfl.import_ftn_data([year])
+                if ftn.empty:
+                    logger.warning(f"No FTN data for {year}")
+                    continue
+
+                ftn = ftn.rename(columns={
+                    'nflverse_game_id': 'game_id',
+                    'nflverse_play_id': 'play_id',
+                })
+                ftn['ftn_play_action'] = ftn['is_play_action'].fillna(False).astype(int)
+                ftn['ftn_blitzers'] = ftn['n_blitzers'].fillna(0).astype(int)
+                ftn['ftn_is_rpo'] = ftn['is_rpo'].fillna(False).astype(int)
+                ftn['ftn_is_screen'] = ftn['is_screen_pass'].fillna(False).astype(int)
+
+                updated = 0
+                for _, row in ftn[['game_id', 'play_id', 'ftn_play_action', 'ftn_blitzers', 'ftn_is_rpo', 'ftn_is_screen']].iterrows():
+                    result = self.db.execute(sqla_text(
+                        """UPDATE plays
+                           SET ftn_play_action=:pa, ftn_blitzers=:bl, ftn_is_rpo=:rpo, ftn_is_screen=:sc
+                           WHERE game_id=:gid AND play_id=:pid"""
+                    ), {
+                        'pa': int(row['ftn_play_action']), 'bl': int(row['ftn_blitzers']),
+                        'rpo': int(row['ftn_is_rpo']), 'sc': int(row['ftn_is_screen']),
+                        'gid': row['game_id'], 'pid': int(row['play_id']),
+                    })
+                    updated += result.rowcount
+
+                self.db.commit()
+                logger.info(f"FTN {year}: updated {updated} plays")
+                total_updated += updated
+
+            except Exception as e:
+                logger.error(f"FTN enrichment failed for {year}: {e}")
+
+        if skipped_years:
+            logger.info(f"FTN not available before 2022 — skipped {skipped_years}")
+        return {'status': 'success', 'plays_updated': total_updated, 'skipped': skipped_years}
+
+    def import_pfr_passing(self, years: List[int]) -> Dict:
+        """
+        Enrich NGSPassing with PFR advanced passing data: pressures, hurries, drops, bad throws.
+        Available from 2018+. Matches rows by season + week + team + pfr_id (via ID crosswalk).
+        """
+        total_updated = 0
+
+        try:
+            logger.info("Loading GSIS→PFR ID crosswalk...")
+            ids_df = nfl.import_ids()
+            gsis_to_pfr = ids_df.dropna(subset=['gsis_id', 'pfr_id']).set_index('gsis_id')['pfr_id'].to_dict()
+            pfr_to_gsis = {v: k for k, v in gsis_to_pfr.items()}
+        except Exception as e:
+            logger.error(f"Could not load ID crosswalk: {e}")
+            return {'status': 'failed', 'error': str(e)}
+
+        for year in years:
+            if year < 2018:
+                logger.info(f"PFR pass data not available before 2018 — skipping {year}")
+                continue
+            try:
+                logger.info(f"Fetching PFR passing for {year}...")
+                pfr = nfl.import_weekly_pfr('pass', [year])
+                pfr = pfr[pfr['game_type'] == 'REG'].copy()
+                if pfr.empty:
+                    continue
+
+                updated = 0
+                for _, row in pfr.iterrows():
+                    pfr_id = row.get('pfr_player_id')
+                    if not pfr_id:
+                        continue
+                    gsis_id = pfr_to_gsis.get(pfr_id)
+                    if not gsis_id:
+                        continue
+
+                    ngs_row = self.db.query(NGSPassing).filter(
+                        NGSPassing.season == int(row['season']),
+                        NGSPassing.week == int(row['week']),
+                        NGSPassing.player_gsis_id == gsis_id,
+                    ).first()
+
+                    if ngs_row:
+                        ngs_row.times_pressured = _safe_int(row.get('times_pressured'))
+                        ngs_row.times_hurried   = _safe_int(row.get('times_hurried'))
+                        ngs_row.times_hit_pfr   = _safe_int(row.get('times_hit'))
+                        ngs_row.times_blitzed   = _safe_int(row.get('times_blitzed'))
+                        ngs_row.pressure_pct    = _safe_float(row.get('times_pressured_pct'))
+                        ngs_row.passing_drops   = _safe_int(row.get('passing_drops'))
+                        ngs_row.bad_throw_pct   = _safe_float(row.get('passing_bad_throw_pct'))
+                        updated += 1
+
+                self.db.commit()
+                logger.info(f"PFR pass {year}: updated {updated} NGSPassing rows")
+                total_updated += updated
+
+            except Exception as e:
+                logger.error(f"PFR pass enrichment failed for {year}: {e}")
+
+        return {'status': 'success', 'rows_updated': total_updated}
+
+    def import_pfr_rushing(self, years: List[int]) -> Dict:
+        """
+        Enrich NGSRushing with PFR broken tackles and contact yards.
+        Available from 2018+.
+        """
+        total_updated = 0
+
+        try:
+            ids_df = nfl.import_ids()
+            pfr_to_gsis = ids_df.dropna(subset=['gsis_id', 'pfr_id']).set_index('pfr_id')['gsis_id'].to_dict()
+        except Exception as e:
+            logger.error(f"Could not load ID crosswalk: {e}")
+            return {'status': 'failed', 'error': str(e)}
+
+        for year in years:
+            if year < 2018:
+                logger.info(f"PFR rush data not available before 2018 — skipping {year}")
+                continue
+            try:
+                logger.info(f"Fetching PFR rushing for {year}...")
+                pfr = nfl.import_weekly_pfr('rush', [year])
+                pfr = pfr[pfr['game_type'] == 'REG'].copy()
+                if pfr.empty:
+                    continue
+
+                updated = 0
+                for _, row in pfr.iterrows():
+                    pfr_id = row.get('pfr_player_id')
+                    if not pfr_id:
+                        continue
+                    gsis_id = pfr_to_gsis.get(pfr_id)
+                    if not gsis_id:
+                        continue
+
+                    ngs_row = self.db.query(NGSRushing).filter(
+                        NGSRushing.season == int(row['season']),
+                        NGSRushing.week == int(row['week']),
+                        NGSRushing.player_gsis_id == gsis_id,
+                    ).first()
+
+                    if ngs_row:
+                        ngs_row.rushing_broken_tackles       = _safe_int(row.get('rushing_broken_tackles'))
+                        ngs_row.rushing_yards_before_contact = _safe_float(row.get('rushing_yards_before_contact'))
+                        ngs_row.rushing_yards_after_contact  = _safe_float(row.get('rushing_yards_after_contact'))
+                        updated += 1
+
+                self.db.commit()
+                logger.info(f"PFR rush {year}: updated {updated} NGSRushing rows")
+                total_updated += updated
+
+            except Exception as e:
+                logger.error(f"PFR rush enrichment failed for {year}: {e}")
+
+        return {'status': 'success', 'rows_updated': total_updated}
 
     def get_refresh_history(self, limit: int = 10) -> List[Dict]:
         """Get recent refresh history."""

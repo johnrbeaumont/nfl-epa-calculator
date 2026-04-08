@@ -90,6 +90,15 @@ class NGSPassing(Base):
     play_action_pct = Column(Float)              # % dropbacks on play action
     blitz_pct = Column(Float)                    # % dropbacks facing 5+ pass rushers
 
+    # PFR charting data (2018+, enriched by import_pfr_passing)
+    times_pressured = Column(Integer)
+    times_hurried = Column(Integer)
+    times_hit_pfr = Column(Integer)              # pfr "times hit" (distinct from qb_hit in PBP)
+    times_blitzed = Column(Integer)
+    pressure_pct = Column(Float)                 # pressured / dropbacks
+    passing_drops = Column(Integer)
+    bad_throw_pct = Column(Float)
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -194,6 +203,11 @@ class NGSRushing(Base):
     rush_yards_over_expected = Column(Float)  # KEY METRIC
     rush_yards_over_expected_per_att = Column(Float)
     rush_pct_over_expected = Column(Float)
+
+    # PFR charting data (2018+, enriched by import_pfr_rushing)
+    rushing_broken_tackles = Column(Integer)
+    rushing_yards_before_contact = Column(Float)
+    rushing_yards_after_contact = Column(Float)
 
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -436,9 +450,15 @@ class Plays(Base):
     home_wp = Column(Float)   # home team win probability before this play (0-1)
     away_wp = Column(Float)
 
-    # Defensive formation
+    # Defensive formation (nflfastR)
     number_of_pass_rushers = Column(Integer)
     defenders_in_box = Column(Integer)
+
+    # FTN charting data (2022+, joined on game_id + play_id)
+    ftn_play_action = Column(Integer)   # 1 = play action
+    ftn_blitzers = Column(Integer)      # number of blitzers (more precise than number_of_pass_rushers)
+    ftn_is_rpo = Column(Integer)        # 1 = run-pass option
+    ftn_is_screen = Column(Integer)     # 1 = screen pass
 
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)

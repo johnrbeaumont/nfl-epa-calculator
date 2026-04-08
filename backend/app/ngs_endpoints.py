@@ -994,9 +994,16 @@ def get_league_team_stats(
             SUM(CASE WHEN rush_attempt=1 AND COALESCE(first_down,0)=1 THEN 1 ELSE 0 END)                  AS rush_first_dns,
             SUM(CASE WHEN pass_attempt=1 AND COALESCE(first_down,0)=1 THEN 1 ELSE 0 END)                  AS pass_first_dns,
             SUM(CASE WHEN COALESCE(complete_pass,0)=1 AND air_yards IS NOT NULL THEN air_yards ELSE 0 END) AS cay_total,
-            SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 AND COALESCE(number_of_pass_rushers,0)>=5 THEN 1 ELSE 0 END) AS blitz_faced,
-            SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 AND number_of_pass_rushers IS NOT NULL THEN 1 ELSE 0 END)    AS pass_with_rushers,
-            SUM(CASE WHEN COALESCE(play_action,0)=1 THEN 1 ELSE 0 END)                                    AS play_action_plays,
+            -- Blitz: FTN n_blitzers >= 1 = any blitz; fall back to nflfastR 5+ rushers
+            SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 AND (
+                    CASE WHEN ftn_blitzers IS NOT NULL THEN ftn_blitzers >= 1
+                         ELSE COALESCE(number_of_pass_rushers,0) >= 5 END
+                ) THEN 1 ELSE 0 END)                                                                       AS blitz_faced,
+            SUM(CASE WHEN pass_attempt=1 AND COALESCE(sack,0)=0 AND
+                    (ftn_blitzers IS NOT NULL OR number_of_pass_rushers IS NOT NULL) THEN 1 ELSE 0 END)    AS pass_with_rushers,
+            -- Play action: use FTN when available (nflfastR column is empty)
+            SUM(CASE WHEN COALESCE(ftn_play_action, COALESCE(play_action,0))=1 THEN 1 ELSE 0 END)         AS play_action_plays,
+            SUM(CASE WHEN COALESCE(ftn_is_rpo,0)=1 THEN 1 ELSE 0 END)                                    AS rpo_plays,
             SUM(CASE WHEN pass_attempt=1 THEN 1 ELSE 0 END)                                               AS total_dropbacks
         FROM plays
         WHERE season = :season AND season_type = 'REG' AND posteam IS NOT NULL
@@ -1023,7 +1030,8 @@ def get_league_team_stats(
 
     if side == "offense":
         # ── NGS Passing ───────────────────────────────────────────────────────
-        pass_rows = db.query(
+        # NGS tracking comes from week=0 (season agg); PFR data is per-week, aggregate from week>=1
+        pass_ngs_q = db.query(
             NGSPassing.team_abbr,
             func.avg(NGSPassing.avg_time_to_throw).label('ttt'),
             func.avg(NGSPassing.completion_percentage_above_expectation).label('cpoe'),
@@ -1031,10 +1039,24 @@ def get_league_team_stats(
             func.avg(NGSPassing.avg_intended_air_yards).label('iay'),
             func.avg(NGSPassing.avg_completed_air_yards).label('cay'),
         ).filter(NGSPassing.season == season, NGSPassing.week == week).group_by(NGSPassing.team_abbr).all()
-        pass_map = {r.team_abbr: r for r in pass_rows}
+        pass_map = {r.team_abbr: r for r in pass_ngs_q}
+
+        # PFR data: for week=0, aggregate all weekly rows; for specific week, just that week
+        pfr_pass_filter = (NGSPassing.week >= 1) if week == 0 else (NGSPassing.week == week)
+        pass_pfr_q = db.query(
+            NGSPassing.team_abbr,
+            func.sum(NGSPassing.times_pressured).label('times_pressured'),
+            func.sum(NGSPassing.times_hurried).label('times_hurried'),
+            func.sum(NGSPassing.times_hit_pfr).label('times_hit'),
+            func.sum(NGSPassing.times_blitzed).label('times_blitzed'),
+            func.avg(NGSPassing.pressure_pct).label('pressure_pct'),
+            func.sum(NGSPassing.passing_drops).label('passing_drops'),
+            func.avg(NGSPassing.bad_throw_pct).label('bad_throw_pct'),
+        ).filter(NGSPassing.season == season, pfr_pass_filter).group_by(NGSPassing.team_abbr).all()
+        pfr_pass_map = {r.team_abbr: r for r in pass_pfr_q}
 
         # ── NGS Rushing ───────────────────────────────────────────────────────
-        rush_rows = db.query(
+        rush_ngs_q = db.query(
             NGSRushing.team_abbr,
             func.avg(NGSRushing.efficiency).label('eff'),
             func.sum(NGSRushing.rush_yards_over_expected).label('ryoe'),
@@ -1042,7 +1064,16 @@ def get_league_team_stats(
             func.avg(NGSRushing.percent_attempts_gte_eight_defenders).label('stacked_pct'),
             func.avg(NGSRushing.avg_time_to_los).label('ttlos'),
         ).filter(NGSRushing.season == season, NGSRushing.week == week).group_by(NGSRushing.team_abbr).all()
-        rush_map = {r.team_abbr: r for r in rush_rows}
+        rush_map = {r.team_abbr: r for r in rush_ngs_q}
+
+        pfr_rush_filter = (NGSRushing.week >= 1) if week == 0 else (NGSRushing.week == week)
+        rush_pfr_q = db.query(
+            NGSRushing.team_abbr,
+            func.sum(NGSRushing.rushing_broken_tackles).label('broken_tackles'),
+            func.avg(NGSRushing.rushing_yards_before_contact).label('ybc'),
+            func.avg(NGSRushing.rushing_yards_after_contact).label('yac'),
+        ).filter(NGSRushing.season == season, pfr_rush_filter).group_by(NGSRushing.team_abbr).all()
+        pfr_rush_map = {r.team_abbr: r for r in rush_pfr_q}
 
         # ── NGS Receiving ─────────────────────────────────────────────────────
         rec_rows = db.query(
@@ -1056,10 +1087,12 @@ def get_league_team_stats(
 
         results = []
         for team in NFL_TEAMS:
-            pbp = off_pbp.get(team)
-            p = pass_map.get(team)
-            r = rush_map.get(team)
-            rec = rec_map.get(team)
+            pbp  = off_pbp.get(team)
+            p    = pass_map.get(team)
+            pp   = pfr_pass_map.get(team)
+            r    = rush_map.get(team)
+            pr   = pfr_rush_map.get(team)
+            rec  = rec_map.get(team)
             if pbp is None and p is None and r is None:
                 continue
 
@@ -1100,6 +1133,21 @@ def get_league_team_stats(
             sacks_taken = int(pbp.sacks_taken or 0) if pbp else 0
             rush_1st = int(pbp.rush_first_dns or 0) if pbp else None
             pass_1st = int(pbp.pass_first_dns or 0) if pbp else None
+            rpo_plays = int(pbp.rpo_plays or 0) if pbp else 0
+            rpo_pct = round(rpo_plays / dropbacks * 100, 1) if dropbacks else None
+
+            # PFR pressure data (from pfr_pass_map, 2018+)
+            times_pressured = ri(pp.times_pressured) if pp else None
+            pressure_pct    = pp.pressure_pct if pp else None
+            times_hurried   = ri(pp.times_hurried) if pp else None
+            times_blitzed   = ri(pp.times_blitzed) if pp else None
+            passing_drops   = ri(pp.passing_drops) if pp else None
+            bad_throw_pct   = pp.bad_throw_pct if pp else None
+
+            # PFR broken tackle data (from pfr_rush_map, 2018+)
+            broken_tackles  = ri(pr.broken_tackles) if pr else None
+            ybc             = r1(pr.ybc) if pr else None
+            rush_yac        = r1(pr.yac) if pr else None
 
             results.append({
                 "team": team,
@@ -1133,6 +1181,13 @@ def get_league_team_stats(
                 "pass_first_downs": pass_1st,
                 "cay": r1(cay_total),
                 "cay_per_cmp": cay_per_cmp,
+                # PFR pressure data (2018+)
+                "times_pressured": times_pressured,
+                "pressure_pct": r1(pressure_pct * 100) if pressure_pct else None,
+                "times_hurried": times_hurried,
+                "times_blitzed": times_blitzed,
+                "passing_drops": passing_drops,
+                "bad_throw_pct": r1(bad_throw_pct * 100) if bad_throw_pct else None,
                 # NGS Passing tracking
                 "ttt": r2(p.ttt) if p else None,
                 "cpoe": r1(p.cpoe) if p else None,
@@ -1145,15 +1200,20 @@ def get_league_team_stats(
                 "rush_ypp": round(rush_yds / rush_att, 1) if rush_att else None,
                 "rush_tds": rush_tds,
                 "rush_first_downs": rush_1st,
+                # PFR rushing data (2018+)
+                "broken_tackles": broken_tackles,
+                "yards_before_contact": ybc,
+                "yards_after_contact": rush_yac,
                 # NGS Rushing tracking
                 "eff": r2(r.eff) if r else None,
                 "ryoe": round(float(r.ryoe), 0) if (r and r.ryoe) else None,
                 "ryoe_per_att": r2(r.ryoe_per_att) if r else None,
                 "stacked_pct": r1(r.stacked_pct) if r else None,
                 "ttlos": r2(r.ttlos) if r else None,
-                # Situational
+                # Situational (FTN 2022+)
                 "blitz_pct": blitz_pct,
                 "play_action_pct": play_action_pct,
+                "rpo_pct": rpo_pct,
                 # NGS Receiving tracking
                 "avg_sep": r1(rec.avg_sep) if rec else None,
                 "avg_yac": r1(rec.avg_yac) if rec else None,
