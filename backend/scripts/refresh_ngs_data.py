@@ -162,9 +162,14 @@ Examples:
         history = importer.get_refresh_history(limit=5)
         for entry in history:
             status_icon = "✓" if entry['status'] == 'success' else "✗"
+            stat_type = entry['stat_type'] or 'unknown'
+            refresh_type = entry['refresh_type'] or 'unknown'
+            started_at = (entry['started_at'] or '')[:19]
+            rows_ins = entry['rows_inserted'] or 0
+            rows_upd = entry['rows_updated'] or 0
             logger.info(
-                f"  {status_icon} {entry['stat_type']:10s} | {entry['refresh_type']:12s} | "
-                f"{entry['started_at'][:19]} | ins:{entry['rows_inserted']:4d} upd:{entry['rows_updated']:4d}"
+                f"  {status_icon} {stat_type:10s} | {refresh_type:12s} | "
+                f"{started_at} | ins:{rows_ins:4d} upd:{rows_upd:4d}"
             )
 
         logger.info("")

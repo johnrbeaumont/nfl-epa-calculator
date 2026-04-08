@@ -848,7 +848,9 @@ class NGSDataImporter:
             end_year: Last year to import (default current year)
         """
         if end_year is None:
-            end_year = datetime.now().year
+            now = datetime.now()
+            # Before July (offseason), cap at prior year since current season hasn't started
+            end_year = now.year if now.month >= 7 else now.year - 1
 
         years = list(range(start_year, end_year + 1))
         results = {}
@@ -887,10 +889,12 @@ class NGSDataImporter:
         Refresh only current season data.
 
         Args:
-            season: Season to refresh (default current year)
+            season: Season to refresh (default: current year, or prior year during offseason)
         """
         if season is None:
-            season = datetime.now().year
+            now = datetime.now()
+            # NFL season runs Sep-Feb. Before July = offseason, use prior year's data.
+            season = now.year if now.month >= 7 else now.year - 1
 
         logger.info(f"Starting incremental refresh for season {season}")
 
