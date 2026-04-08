@@ -52,6 +52,7 @@ class NGSPassing(Base):
     player_jersey_number = Column(Integer)
     player_short_name = Column(String(50))
     team_abbr = Column(String(10), index=True)
+    opponent_team = Column(String(10))
 
     # Timing & Decision Metrics
     avg_time_to_throw = Column(Float)
@@ -111,6 +112,7 @@ class NGSReceiving(Base):
     player_jersey_number = Column(Integer)
     player_short_name = Column(String(50))
     team_abbr = Column(String(10), index=True)
+    opponent_team = Column(String(10))
 
     # Separation Metrics
     avg_separation = Column(Float)  # KEY METRIC - yards from nearest defender
@@ -164,6 +166,7 @@ class NGSRushing(Base):
     player_jersey_number = Column(Integer)
     player_short_name = Column(String(50))
     team_abbr = Column(String(10), index=True)
+    opponent_team = Column(String(10))
 
     # Efficiency Metrics
     efficiency = Column(Float)  # KEY METRIC - yards gained per expected yard

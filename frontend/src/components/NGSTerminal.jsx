@@ -1336,7 +1336,7 @@ function NGSTerminal({ onNavigate }) {
             <div
               style={{
                 position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 1000,
+                backgroundColor: 'rgba(0,0,0,0.88)', zIndex: 1000,
                 overflowY: 'auto', padding: '2rem',
               }}
               onClick={() => { setSelectedPlayer(null); setPlayerGameLogs([]) }}
@@ -1344,32 +1344,33 @@ function NGSTerminal({ onNavigate }) {
               <div
                 onClick={e => e.stopPropagation()}
                 style={{
-                  maxWidth: '1400px', margin: '0 auto',
+                  maxWidth: '1600px', margin: '0 auto',
                   backgroundColor: C.bg,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 10,
+                  border: `1px solid ${C.borderBright}`,
+                  borderRadius: 8,
                   overflow: 'hidden',
                 }}
               >
+                {/* Modal header */}
                 <div style={{
-                  padding: '1.5rem',
+                  padding: '1.25rem 1.75rem',
                   borderBottom: `1px solid ${C.border}`,
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   backgroundColor: C.surface,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <PlayerAvatar name={selectedPlayer.player_display_name} headshotUrl={headshots[selectedPlayer.player_gsis_id]} size={48} />
+                    <PlayerAvatar name={selectedPlayer.player_display_name} headshotUrl={headshots[selectedPlayer.player_gsis_id]} size={52} />
                     <div>
-                      <h2 style={{ color: C.text, fontSize: '1.25rem', fontWeight: '700', margin: 0, marginBottom: '0.25rem' }}>
+                      <h2 style={{ color: C.text, fontSize: '1.3rem', fontWeight: '800', margin: 0, marginBottom: '0.3rem', fontFamily: C.fontDisplay, letterSpacing: '-0.01em' }}>
                         {selectedPlayer.player_display_name}
                       </h2>
-                      <div style={{ fontSize: '0.8rem', color: C.muted, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <TeamLogo abbr={selectedPlayer.team_abbr} size={18} />
-                        <span>{selectedPlayer.team_abbr}</span>
-                        <span>·</span>
+                      <div style={{ fontSize: '0.78rem', color: C.muted, display: 'flex', alignItems: 'center', gap: '0.5rem', fontFamily: C.fontCond, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                        <TeamLogo abbr={selectedPlayer.team_abbr} size={16} />
+                        <span style={{ color: C.text, fontWeight: '600' }}>{selectedPlayer.team_abbr}</span>
+                        <span style={{ color: C.dim }}>·</span>
                         <span>{selectedPlayer.player_position}</span>
-                        <span>·</span>
-                        <span>{playerGameLogs.length} games</span>
+                        <span style={{ color: C.dim }}>·</span>
+                        <span style={{ color: C.gold }}>{playerGameLogs.length} games</span>
                       </div>
                     </div>
                   </div>
@@ -1380,65 +1381,176 @@ function NGSTerminal({ onNavigate }) {
                       border: `1px solid ${C.border}`, borderRadius: 6,
                       padding: '0.5rem 1rem', cursor: 'pointer',
                       fontFamily: C.font, fontSize: '0.8rem',
+                      transition: 'color 0.15s, border-color 0.15s',
                     }}
+                    onMouseEnter={e => { e.currentTarget.style.color = C.text; e.currentTarget.style.borderColor = C.borderBright }}
+                    onMouseLeave={e => { e.currentTarget.style.color = C.muted; e.currentTarget.style.borderColor = C.border }}
                   >
                     ✕ Close
                   </button>
                 </div>
 
                 {playerLogsLoading ? (
-                  <div style={{ padding: '3rem', textAlign: 'center', color: C.muted }}>
+                  <div style={{ padding: '4rem', textAlign: 'center', color: C.muted, fontFamily: C.font }}>
                     Loading game logs…
                   </div>
                 ) : playerGameLogs.length === 0 ? (
-                  <div style={{ padding: '3rem', textAlign: 'center', color: C.muted }}>
+                  <div style={{ padding: '4rem', textAlign: 'center', color: C.muted, fontFamily: C.font }}>
                     No game data found
                   </div>
-                ) : (
-                  <div style={{ maxHeight: '70vh', overflowY: 'auto', overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.78rem' }}>
-                      <thead style={{ position: 'sticky', top: 0, backgroundColor: C.surface, zIndex: 10 }}>
-                        <tr>
-                          <th style={{ ...thStyle, textAlign: 'left', position: 'sticky', left: 0, backgroundColor: C.surface, zIndex: 11, borderRight: `1px solid ${C.border}` }}>Season</th>
-                          <th style={{ ...thStyle, textAlign: 'left', position: 'sticky', left: 72, backgroundColor: C.surface, zIndex: 11, borderRight: `1px solid ${C.border}` }}>Week</th>
-                          <th style={{ ...thStyle, textAlign: 'center' }}>Team</th>
-                          {PLAYER_METRICS[selectedPlayer._posGroup || getPosGroup(selectedPlayer.player_position)]?.map(metric => (
-                            <th key={metric.key} style={{ ...thStyle }}>{metric.label}</th>
+                ) : (() => {
+                  // Group logs by season for section headers
+                  const seasons = [...new Set(playerGameLogs.map(g => g.season))].sort((a, b) => b - a)
+                  const posKey = selectedPlayer._posGroup || getPosGroup(selectedPlayer.player_position)
+                  const metrics = PLAYER_METRICS[posKey] || []
+                  const glThStyle = {
+                    ...thStyle,
+                    backgroundColor: C.surface,
+                    padding: '0.6rem 0.75rem',
+                    fontSize: '0.68rem',
+                    letterSpacing: '0.07em',
+                    borderBottom: `2px solid ${C.border}`,
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 10,
+                  }
+                  return (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                        <thead>
+                          <tr>
+                            {/* Fixed left columns */}
+                            <th style={{ ...glThStyle, textAlign: 'center', width: 52, minWidth: 52, borderRight: `1px solid ${C.border}` }}>WK</th>
+                            <th style={{ ...glThStyle, textAlign: 'left', minWidth: 160, borderRight: `1px solid ${C.border}` }}>OPP</th>
+                            {/* Stat columns */}
+                            {metrics.map((metric, mi) => (
+                              <th key={metric.key} style={{
+                                ...glThStyle,
+                                borderLeft: mi === 0 ? `1px solid ${C.border}` : 'none',
+                                color: C.muted,
+                              }}>
+                                {metric.label}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {seasons.map(season => (
+                            <>
+                              {/* Season divider row */}
+                              <tr key={`season-${season}`}>
+                                <td
+                                  colSpan={2 + metrics.length}
+                                  style={{
+                                    padding: '0.4rem 0.75rem',
+                                    backgroundColor: C.goldDim,
+                                    borderTop: `1px solid ${C.goldBorder}`,
+                                    borderBottom: `1px solid ${C.goldBorder}`,
+                                    color: C.gold,
+                                    fontFamily: C.fontCond,
+                                    fontWeight: '700',
+                                    fontSize: '0.68rem',
+                                    letterSpacing: '0.1em',
+                                    textTransform: 'uppercase',
+                                  }}
+                                >
+                                  {season} Season
+                                </td>
+                              </tr>
+                              {/* Game rows for this season */}
+                              {playerGameLogs
+                                .filter(g => g.season === season)
+                                .map((game, gIdx) => {
+                                  const rowBg = gIdx % 2 === 0 ? '#131319' : C.bg
+                                  const weekLabel = game.week === 0
+                                    ? 'TOT'
+                                    : game.week > 18
+                                      ? (['WC', 'DIV', 'CONF', 'SB'][game.week - 19] || `${game.week}`)
+                                      : game.week
+                                  return (
+                                    <tr
+                                      key={`${game.season}-${game.week}-${gIdx}`}
+                                      style={{ backgroundColor: rowBg, borderBottom: `1px solid ${C.border}` }}
+                                      onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
+                                      onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
+                                    >
+                                      {/* Week */}
+                                      <td style={{
+                                        padding: '0.65rem 0.75rem',
+                                        textAlign: 'center',
+                                        color: C.muted,
+                                        fontFamily: C.fontStats,
+                                        fontWeight: '600',
+                                        fontSize: '0.8rem',
+                                        borderRight: `1px solid ${C.border}`,
+                                        whiteSpace: 'nowrap',
+                                      }}>
+                                        {weekLabel}
+                                      </td>
+                                      {/* Opponent */}
+                                      <td style={{
+                                        padding: '0.5rem 0.75rem',
+                                        borderRight: `1px solid ${C.border}`,
+                                      }}>
+                                        {game.opponent_team ? (
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <TeamLogo abbr={game.opponent_team} size={22} />
+                                            <span style={{ color: C.text, fontWeight: '600', fontFamily: C.font, fontSize: '0.82rem' }}>
+                                              {game.opponent_team}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <span style={{ color: C.dim, fontFamily: C.font, fontSize: '0.78rem' }}>—</span>
+                                        )}
+                                      </td>
+                                      {/* Stats */}
+                                      {metrics.map((metric, mi) => {
+                                        const value = game[metric.key]
+                                        const isBox = metric.isBox && value != null
+                                        let color = C.text
+                                        if (metric.isEPA && value != null) {
+                                          color = value > 0 ? C.positive : value < 0 ? C.negative : C.text
+                                        }
+                                        return (
+                                          <td key={metric.key} style={{
+                                            padding: isBox ? '0.4rem 0.5rem' : '0.65rem 0.6rem',
+                                            textAlign: 'right',
+                                            borderLeft: mi === 0 ? `1px solid ${C.border}` : 'none',
+                                          }}>
+                                            {isBox ? (
+                                              <span style={{
+                                                display: 'inline-block',
+                                                backgroundColor: C.goldDim,
+                                                border: `1px solid ${C.goldBorder}`,
+                                                borderRadius: 3,
+                                                padding: '0.25rem 0.5rem',
+                                                color: C.text,
+                                                fontFamily: C.fontStats,
+                                                fontWeight: '700',
+                                                fontSize: '0.8rem',
+                                                minWidth: 34,
+                                                textAlign: 'center',
+                                              }}>
+                                                {metric.format(value)}
+                                              </span>
+                                            ) : (
+                                              <span style={{ color, fontFamily: C.fontStats, fontSize: '0.8rem' }}>
+                                                {metric.format(value)}
+                                              </span>
+                                            )}
+                                          </td>
+                                        )
+                                      })}
+                                    </tr>
+                                  )
+                                })}
+                            </>
                           ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {playerGameLogs.map((game, index) => {
-                          const rowBg = index % 2 === 0 ? C.surface : '#131319'
-                          return (
-                            <tr key={`${game.season}-${game.week}-${index}`} style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg }}>
-                              <td style={{ padding: '0.6rem 0.75rem', color: C.text, fontWeight: '600', position: 'sticky', left: 0, backgroundColor: rowBg, borderRight: `1px solid ${C.border}` }}>{game.season}</td>
-                              <td style={{ padding: '0.6rem 0.75rem', color: C.text, position: 'sticky', left: 72, backgroundColor: rowBg, borderRight: `1px solid ${C.border}` }}>
-                                {game.week > 18 ? ['WC', 'DIV', 'CONF', 'SB'][game.week - 19] || `Wk ${game.week}` : `Wk ${game.week}`}
-                              </td>
-                              <td style={{ padding: '0.6rem', textAlign: 'center' }}>
-                                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                  <TeamLogo abbr={game.team_abbr} size={20} />
-                                </div>
-                              </td>
-                              {PLAYER_METRICS[selectedPlayer._posGroup || getPosGroup(selectedPlayer.player_position)]?.map(metric => {
-                                const value = game[metric.key]
-                                const color = metric.isEPA && value != null
-                                  ? (value > 0 ? C.positive : value < 0 ? C.negative : C.text)
-                                  : C.text
-                                return (
-                                  <td key={metric.key} style={{ padding: '0.6rem', textAlign: 'right', color }}>
-                                    {metric.format(value)}
-                                  </td>
-                                )
-                              })}
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           )}
@@ -1785,69 +1897,98 @@ function NGSTerminal({ onNavigate }) {
             </div>
           )}
 
-          {/* Game Log Modal (Teams tab) */}
+          {/* Game Log Modal (Teams tab) — same design as Players tab */}
           {selectedPlayer && (
             <div
-              style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 1000, overflowY: 'auto', padding: '2rem' }}
+              style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.88)', zIndex: 1000, overflowY: 'auto', padding: '2rem' }}
               onClick={() => { setSelectedPlayer(null); setPlayerGameLogs([]) }}
             >
-              <div onClick={e => e.stopPropagation()} style={{ maxWidth: '1400px', margin: '0 auto', backgroundColor: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-                <div style={{ padding: '1.5rem', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.surface }}>
+              <div onClick={e => e.stopPropagation()} style={{ maxWidth: '1600px', margin: '0 auto', backgroundColor: C.bg, border: `1px solid ${C.borderBright}`, borderRadius: 8, overflow: 'hidden' }}>
+                <div style={{ padding: '1.25rem 1.75rem', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.surface }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <PlayerAvatar name={selectedPlayer.player_display_name} headshotUrl={headshots[selectedPlayer.player_gsis_id]} size={48} />
+                    <PlayerAvatar name={selectedPlayer.player_display_name} headshotUrl={headshots[selectedPlayer.player_gsis_id]} size={52} />
                     <div>
-                      <h2 style={{ color: C.text, fontSize: '1.25rem', fontWeight: '700', margin: 0, marginBottom: '0.25rem' }}>{selectedPlayer.player_display_name}</h2>
-                      <div style={{ fontSize: '0.8rem', color: C.muted, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <TeamLogo abbr={selectedPlayer.team_abbr} size={18} />
-                        <span>{selectedPlayer.team_abbr} · {selectedPlayer.player_position} · {playerGameLogs.length} games</span>
+                      <h2 style={{ color: C.text, fontSize: '1.3rem', fontWeight: '800', margin: 0, marginBottom: '0.3rem', fontFamily: C.fontDisplay, letterSpacing: '-0.01em' }}>{selectedPlayer.player_display_name}</h2>
+                      <div style={{ fontSize: '0.78rem', color: C.muted, display: 'flex', alignItems: 'center', gap: '0.5rem', fontFamily: C.fontCond, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                        <TeamLogo abbr={selectedPlayer.team_abbr} size={16} />
+                        <span style={{ color: C.text, fontWeight: '600' }}>{selectedPlayer.team_abbr}</span>
+                        <span style={{ color: C.dim }}>·</span>
+                        <span>{selectedPlayer.player_position}</span>
+                        <span style={{ color: C.dim }}>·</span>
+                        <span style={{ color: C.gold }}>{playerGameLogs.length} games</span>
                       </div>
                     </div>
                   </div>
                   <button onClick={() => { setSelectedPlayer(null); setPlayerGameLogs([]) }} style={{ backgroundColor: 'transparent', color: C.muted, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0.5rem 1rem', cursor: 'pointer', fontFamily: C.font, fontSize: '0.8rem' }}>✕ Close</button>
                 </div>
                 {playerLogsLoading ? (
-                  <div style={{ padding: '3rem', textAlign: 'center', color: C.muted }}>Loading game logs…</div>
+                  <div style={{ padding: '4rem', textAlign: 'center', color: C.muted, fontFamily: C.font }}>Loading game logs…</div>
                 ) : playerGameLogs.length === 0 ? (
-                  <div style={{ padding: '3rem', textAlign: 'center', color: C.muted }}>No game data found</div>
-                ) : (
-                  <div style={{ maxHeight: '70vh', overflowY: 'auto', overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.78rem' }}>
-                      <thead style={{ position: 'sticky', top: 0, backgroundColor: C.surface, zIndex: 10 }}>
-                        <tr>
-                          <th style={{ ...thStyle, textAlign: 'left', position: 'sticky', left: 0, backgroundColor: C.surface, zIndex: 11, borderRight: `1px solid ${C.border}` }}>Season</th>
-                          <th style={{ ...thStyle, textAlign: 'left', position: 'sticky', left: 72, backgroundColor: C.surface, zIndex: 11, borderRight: `1px solid ${C.border}` }}>Week</th>
-                          <th style={{ ...thStyle, textAlign: 'center' }}>Team</th>
-                          {PLAYER_METRICS[selectedPlayer._posGroup || getPosGroup(selectedPlayer.player_position)]?.map(metric => (
-                            <th key={metric.key} style={thStyle}>{metric.label}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {playerGameLogs.map((game, index) => {
-                          const rowBg = index % 2 === 0 ? C.surface : '#131319'
-                          return (
-                            <tr key={`${game.season}-${game.week}-${index}`} style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: rowBg }}>
-                              <td style={{ padding: '0.6rem 0.75rem', color: C.text, fontWeight: '600', position: 'sticky', left: 0, backgroundColor: rowBg, borderRight: `1px solid ${C.border}` }}>{game.season}</td>
-                              <td style={{ padding: '0.6rem 0.75rem', color: C.text, position: 'sticky', left: 72, backgroundColor: rowBg, borderRight: `1px solid ${C.border}` }}>
-                                {game.week > 18 ? ['WC', 'DIV', 'CONF', 'SB'][game.week - 19] || `Wk ${game.week}` : `Wk ${game.week}`}
-                              </td>
-                              <td style={{ padding: '0.6rem', textAlign: 'center' }}>
-                                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                  <TeamLogo abbr={game.team_abbr} size={20} />
-                                </div>
-                              </td>
-                              {PLAYER_METRICS[selectedPlayer._posGroup || getPosGroup(selectedPlayer.player_position)]?.map(metric => {
-                                const value = game[metric.key]
-                                const color = metric.isEPA && value != null ? (value > 0 ? C.positive : value < 0 ? C.negative : C.text) : C.text
-                                return <td key={metric.key} style={{ padding: '0.6rem', textAlign: 'right', color }}>{metric.format(value)}</td>
+                  <div style={{ padding: '4rem', textAlign: 'center', color: C.muted, fontFamily: C.font }}>No game data found</div>
+                ) : (() => {
+                  const seasons = [...new Set(playerGameLogs.map(g => g.season))].sort((a, b) => b - a)
+                  const posKey = selectedPlayer._posGroup || getPosGroup(selectedPlayer.player_position)
+                  const metrics = PLAYER_METRICS[posKey] || []
+                  const glThStyle = { ...thStyle, backgroundColor: C.surface, padding: '0.6rem 0.75rem', fontSize: '0.68rem', letterSpacing: '0.07em', borderBottom: `2px solid ${C.border}`, position: 'sticky', top: 0, zIndex: 10 }
+                  return (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ ...glThStyle, textAlign: 'center', width: 52, minWidth: 52, borderRight: `1px solid ${C.border}` }}>WK</th>
+                            <th style={{ ...glThStyle, textAlign: 'left', minWidth: 160, borderRight: `1px solid ${C.border}` }}>OPP</th>
+                            {metrics.map((metric, mi) => (
+                              <th key={metric.key} style={{ ...glThStyle, borderLeft: mi === 0 ? `1px solid ${C.border}` : 'none', color: C.muted }}>{metric.label}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {seasons.map(season => (
+                            <>
+                              <tr key={`season-${season}`}>
+                                <td colSpan={2 + metrics.length} style={{ padding: '0.4rem 0.75rem', backgroundColor: C.goldDim, borderTop: `1px solid ${C.goldBorder}`, borderBottom: `1px solid ${C.goldBorder}`, color: C.gold, fontFamily: C.fontCond, fontWeight: '700', fontSize: '0.68rem', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                                  {season} Season
+                                </td>
+                              </tr>
+                              {playerGameLogs.filter(g => g.season === season).map((game, gIdx) => {
+                                const rowBg = gIdx % 2 === 0 ? '#131319' : C.bg
+                                const weekLabel = game.week === 0 ? 'TOT' : game.week > 18 ? (['WC', 'DIV', 'CONF', 'SB'][game.week - 19] || `${game.week}`) : game.week
+                                return (
+                                  <tr key={`${game.season}-${game.week}-${gIdx}`} style={{ backgroundColor: rowBg, borderBottom: `1px solid ${C.border}` }} onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover} onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}>
+                                    <td style={{ padding: '0.65rem 0.75rem', textAlign: 'center', color: C.muted, fontFamily: C.fontStats, fontWeight: '600', fontSize: '0.8rem', borderRight: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>{weekLabel}</td>
+                                    <td style={{ padding: '0.5rem 0.75rem', borderRight: `1px solid ${C.border}` }}>
+                                      {game.opponent_team ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                          <TeamLogo abbr={game.opponent_team} size={22} />
+                                          <span style={{ color: C.text, fontWeight: '600', fontFamily: C.font, fontSize: '0.82rem' }}>{game.opponent_team}</span>
+                                        </div>
+                                      ) : <span style={{ color: C.dim, fontFamily: C.font, fontSize: '0.78rem' }}>—</span>}
+                                    </td>
+                                    {metrics.map((metric, mi) => {
+                                      const value = game[metric.key]
+                                      const isBox = metric.isBox && value != null
+                                      let color = C.text
+                                      if (metric.isEPA && value != null) color = value > 0 ? C.positive : value < 0 ? C.negative : C.text
+                                      return (
+                                        <td key={metric.key} style={{ padding: isBox ? '0.4rem 0.5rem' : '0.65rem 0.6rem', textAlign: 'right', borderLeft: mi === 0 ? `1px solid ${C.border}` : 'none' }}>
+                                          {isBox ? (
+                                            <span style={{ display: 'inline-block', backgroundColor: C.goldDim, border: `1px solid ${C.goldBorder}`, borderRadius: 3, padding: '0.25rem 0.5rem', color: C.text, fontFamily: C.fontStats, fontWeight: '700', fontSize: '0.8rem', minWidth: 34, textAlign: 'center' }}>{metric.format(value)}</span>
+                                          ) : (
+                                            <span style={{ color, fontFamily: C.fontStats, fontSize: '0.8rem' }}>{metric.format(value)}</span>
+                                          )}
+                                        </td>
+                                      )
+                                    })}
+                                  </tr>
+                                )
                               })}
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                            </>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           )}

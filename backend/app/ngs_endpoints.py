@@ -46,6 +46,7 @@ class PassingStatsResponse(BaseModel):
     player_display_name: Optional[str] = None
     player_position: Optional[str] = None
     team_abbr: Optional[str] = None
+    opponent_team: Optional[str] = None
 
     # Key metrics
     avg_time_to_throw: Optional[float] = None
@@ -91,6 +92,7 @@ class ReceivingStatsResponse(BaseModel):
     player_display_name: Optional[str] = None
     player_position: Optional[str] = None
     team_abbr: Optional[str] = None
+    opponent_team: Optional[str] = None
 
     # Key metrics
     avg_separation: Optional[float] = None
@@ -133,6 +135,7 @@ class RushingStatsResponse(BaseModel):
     player_display_name: Optional[str] = None
     player_position: Optional[str] = None
     team_abbr: Optional[str] = None
+    opponent_team: Optional[str] = None
 
     # Key metrics
     efficiency: Optional[float] = None
