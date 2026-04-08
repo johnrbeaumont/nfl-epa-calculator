@@ -56,7 +56,7 @@ class NGSPassing(Base):
 
     # Timing & Decision Metrics
     avg_time_to_throw = Column(Float)
-    aggressiveness = Column(Float)  # % of passes targeting tight coverage
+    aggressiveness = Column(Float)  # % of passes targeting tight coverage (= TW%)
 
     # Air Yards Metrics
     avg_completed_air_yards = Column(Float)
@@ -79,6 +79,16 @@ class NGSPassing(Base):
     pass_touchdowns = Column(Integer)
     interceptions = Column(Integer)
     passer_rating = Column(Float)
+
+    # PBP-enriched per-game fields (populated by _enrich_passing_with_pbp)
+    game_id = Column(String(30), index=True)     # nflfastR game_id e.g. "2024_01_KC_BAL"
+    home_away = Column(String(5))                # 'home' or 'away'
+    game_result = Column(String(20))             # 'W 37-20' or 'L 24-27'
+    dropbacks = Column(Integer)                  # attempts + sacks + scrambles
+    deep_pass_pct = Column(Float)                # % attempts with air_yards >= 20
+    qb_hit_pct = Column(Float)                   # % dropbacks QB was hit (pressure proxy)
+    play_action_pct = Column(Float)              # % dropbacks on play action
+    blitz_pct = Column(Float)                    # % dropbacks facing 5+ pass rushers
 
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -342,6 +352,97 @@ class SeasonalStats(Base):
         UniqueConstraint('season', 'season_type', 'player_id', name='uix_seasonal_player'),
         Index('idx_seasonal_season', 'season'),
         Index('idx_seasonal_player', 'player_id'),
+    )
+
+
+class Plays(Base):
+    """Full play-by-play data from nflfastR via nfl_data_py (2016-present)"""
+    __tablename__ = "plays"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Game context
+    game_id = Column(String(30), nullable=False, index=True)
+    season = Column(Integer, nullable=False, index=True)
+    week = Column(Integer, nullable=False)
+    season_type = Column(String(10))
+    home_team = Column(String(10))
+    away_team = Column(String(10))
+
+    # Play context
+    play_id = Column(Integer)
+    play_type = Column(String(20))      # pass, run, punt, kickoff, field_goal, etc.
+    down = Column(Integer)
+    ydstogo = Column(Integer)
+    yardline_100 = Column(Integer)      # yards from opponent end zone
+    quarter_seconds_remaining = Column(Integer)
+    game_seconds_remaining = Column(Integer)
+    qtr = Column(Integer)               # 1-4, 5=OT
+
+    # Score state
+    posteam = Column(String(10), index=True)   # team with possession
+    defteam = Column(String(10))
+    home_score = Column(Integer)
+    away_score = Column(Integer)
+    score_differential = Column(Integer)
+
+    # Play outcome
+    desc = Column(Text)                 # full play description
+    yards_gained = Column(Integer)
+    touchdown = Column(Integer)
+    first_down = Column(Integer)
+
+    # Pass details
+    pass_attempt = Column(Integer)
+    complete_pass = Column(Integer)
+    incomplete_pass = Column(Integer)
+    air_yards = Column(Float)
+    yards_after_catch = Column(Float)
+    pass_length = Column(String(10))    # 'short' / 'deep' (deep = air_yards >= 15)
+    pass_location = Column(String(10))  # 'left' / 'middle' / 'right'
+    no_huddle = Column(Integer)
+    shotgun = Column(Integer)
+    play_action = Column(Integer)
+
+    # QB events
+    sack = Column(Integer)
+    qb_hit = Column(Integer)
+    qb_scramble = Column(Integer)
+    interception = Column(Integer)
+
+    # Rush details
+    rush_attempt = Column(Integer)
+
+    # Special teams / penalties
+    fumble = Column(Integer)
+    fumble_lost = Column(Integer)
+    penalty = Column(Integer)
+    penalty_yards = Column(Integer)
+
+    # Players
+    passer_player_id = Column(String(20), index=True)
+    passer_player_name = Column(String(100))
+    receiver_player_id = Column(String(20), index=True)
+    receiver_player_name = Column(String(100))
+    rusher_player_id = Column(String(20), index=True)
+    rusher_player_name = Column(String(100))
+
+    # Advanced metrics
+    epa = Column(Float)
+    wpa = Column(Float)
+    cpoe = Column(Float)
+
+    # Defensive formation
+    number_of_pass_rushers = Column(Integer)
+    defenders_in_box = Column(Integer)
+
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_plays_game_passer', 'game_id', 'passer_player_id'),
+        Index('idx_plays_game_rusher', 'game_id', 'rusher_player_id'),
+        Index('idx_plays_season_week', 'season', 'week'),
     )
 
 

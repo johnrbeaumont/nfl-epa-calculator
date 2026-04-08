@@ -224,6 +224,66 @@ const PLAYER_METRICS = {
   DB: METRIC_SECTIONS.DB.flatMap(s => s.metrics),
 }
 
+// Game-log specific columns — match pro.nfl.com layout exactly
+const GAME_LOG_METRICS = {
+  QB: [
+    { key: 'completions',   label: 'CMP',      format: fmt.int,  isBox: true },
+    { key: 'attempts',      label: 'ATT',      format: fmt.int,  isBox: true },
+    { key: 'completion_percentage', label: 'CMP%',  format: fmt.f1 },
+    { key: 'completion_percentage_above_expectation', label: 'CPOE', format: fmt.sign1, isEPA: false },
+    { key: 'dropbacks',     label: 'DB',       format: fmt.int,  isBox: true },
+    { key: 'passing_epa',   label: 'EPA',      format: fmt.f1,   isEPA: true },
+    { key: 'epa_per_dropback', label: 'EPA/DB', format: fmt.sign2, isEPA: true },
+    { key: 'avg_intended_air_yards', label: 'AY/ATT', format: fmt.f1 },
+    { key: 'deep_pass_pct', label: 'DEEP%',    format: fmt.f1 },
+    { key: 'avg_time_to_throw', label: 'TTT',  format: fmt.f2 },
+    { key: 'qb_hit_pct',    label: 'QBP%',     format: fmt.f1 },
+    { key: 'blitz_pct',     label: 'BLITZ%',   format: fmt.f1 },
+    { key: 'play_action_pct', label: 'PA%',    format: fmt.f1 },
+    { key: 'aggressiveness', label: 'TW%',     format: fmt.f1 },
+  ],
+  RB: [
+    { key: 'rush_attempts', label: 'ATT',      format: fmt.int,  isBox: true },
+    { key: 'rush_yards',    label: 'YDS',      format: fmt.int },
+    { key: 'avg_rush_yards',label: 'YPC',      format: fmt.f1 },
+    { key: 'rush_touchdowns', label: 'TD',     format: fmt.int },
+    { key: 'rushing_epa',   label: 'EPA',      format: fmt.f1,   isEPA: true },
+    { key: 'epa_per_carry', label: 'EPA/C',    format: fmt.sign2, isEPA: true },
+    { key: 'rush_yards_over_expected', label: 'RYOE', format: fmt.sign1 },
+    { key: 'rush_yards_over_expected_per_att', label: 'YOE/A', format: fmt.sign2 },
+    { key: 'efficiency',    label: 'EFF',      format: fmt.f2 },
+    { key: 'avg_time_to_los', label: 'TTLOS',  format: fmt.f2 },
+  ],
+  WR: [
+    { key: 'targets',       label: 'TGT',      format: fmt.int,  isBox: true },
+    { key: 'receptions',    label: 'REC',      format: fmt.int,  isBox: true },
+    { key: 'catch_percentage', label: 'CT%',   format: fmt.f1 },
+    { key: 'yards',         label: 'YDS',      format: fmt.int },
+    { key: 'rec_touchdowns', label: 'TD',      format: fmt.int },
+    { key: 'receiving_epa', label: 'EPA',      format: fmt.f1,   isEPA: true },
+    { key: 'epa_per_target', label: 'EPA/TGT', format: fmt.sign2, isEPA: true },
+    { key: 'avg_separation', label: 'SEP',     format: fmt.f1 },
+    { key: 'avg_yac',       label: 'YAC',      format: fmt.f1 },
+    { key: 'avg_yac_above_expectation', label: 'YAC+', format: fmt.sign2 },
+    { key: 'avg_intended_air_yards', label: 'aDOT', format: fmt.f1 },
+  ],
+  TE: [
+    { key: 'targets',       label: 'TGT',      format: fmt.int,  isBox: true },
+    { key: 'receptions',    label: 'REC',      format: fmt.int,  isBox: true },
+    { key: 'catch_percentage', label: 'CT%',   format: fmt.f1 },
+    { key: 'yards',         label: 'YDS',      format: fmt.int },
+    { key: 'rec_touchdowns', label: 'TD',      format: fmt.int },
+    { key: 'receiving_epa', label: 'EPA',      format: fmt.f1,   isEPA: true },
+    { key: 'epa_per_target', label: 'EPA/TGT', format: fmt.sign2, isEPA: true },
+    { key: 'avg_separation', label: 'SEP',     format: fmt.f1 },
+    { key: 'avg_yac',       label: 'YAC',      format: fmt.f1 },
+    { key: 'avg_intended_air_yards', label: 'aDOT', format: fmt.f1 },
+  ],
+  DL: METRIC_SECTIONS.DL.flatMap(s => s.metrics),
+  LB: METRIC_SECTIONS.LB.flatMap(s => s.metrics),
+  DB: METRIC_SECTIONS.DB.flatMap(s => s.metrics),
+}
+
 // Stats glossary definitions
 const GLOSSARY = [
   { section: 'Core Passing', items: [
@@ -486,6 +546,11 @@ function NGSTerminal({ onNavigate }) {
   const [teamRoster, setTeamRoster] = useState({ qbs: [], rbs: [], receivers: [] })
   const [rosterLoading, setRosterLoading] = useState(false)
 
+  // Play-by-play drill-down
+  const [selectedGame, setSelectedGame] = useState(null)   // { game_id, label, player }
+  const [gamePlays, setGamePlays] = useState([])
+  const [gamePlaysLoading, setGamePlaysLoading] = useState(false)
+
   // Player headshot map: gsis_id -> url
   const [headshots, setHeadshots] = useState({})
 
@@ -666,6 +731,31 @@ function NGSTerminal({ onNavigate }) {
       setPlayerGameLogs([])
     } finally {
       setPlayerLogsLoading(false)
+    }
+  }
+
+  const fetchGamePlays = async (game_id, player, gameLabel) => {
+    if (!game_id) return
+    setGamePlaysLoading(true)
+    setGamePlays([])
+    setSelectedGame({ game_id, label: gameLabel, player })
+    try {
+      const playerId = player.player_gsis_id
+      const url = `${API_URL}/api/ngs/plays?game_id=${encodeURIComponent(game_id)}${playerId ? `&player_id=${playerId}` : ''}`
+      const res = await fetch(url)
+      if (res.ok) {
+        const plays = await res.json()
+        // Sort by game time (descending quarter_seconds_remaining within each quarter)
+        plays.sort((a, b) => {
+          if (a.qtr !== b.qtr) return (a.qtr || 0) - (b.qtr || 0)
+          return (b.quarter_seconds_remaining || 0) - (a.quarter_seconds_remaining || 0)
+        })
+        setGamePlays(plays)
+      }
+    } catch (err) {
+      setGamePlays([])
+    } finally {
+      setGamePlaysLoading(false)
     }
   }
 
@@ -1402,7 +1492,7 @@ function NGSTerminal({ onNavigate }) {
                   // Group logs by season for section headers
                   const seasons = [...new Set(playerGameLogs.map(g => g.season))].sort((a, b) => b - a)
                   const posKey = selectedPlayer._posGroup || getPosGroup(selectedPlayer.player_position)
-                  const metrics = PLAYER_METRICS[posKey] || []
+                  const metrics = (GAME_LOG_METRICS[posKey] || PLAYER_METRICS[posKey] || [])
                   const glThStyle = {
                     ...thStyle,
                     backgroundColor: C.surface,
@@ -1421,7 +1511,8 @@ function NGSTerminal({ onNavigate }) {
                           <tr>
                             {/* Fixed left columns */}
                             <th style={{ ...glThStyle, textAlign: 'center', width: 52, minWidth: 52, borderRight: `1px solid ${C.border}` }}>WK</th>
-                            <th style={{ ...glThStyle, textAlign: 'left', minWidth: 160, borderRight: `1px solid ${C.border}` }}>OPP</th>
+                            <th style={{ ...glThStyle, textAlign: 'left', minWidth: 160 }}>OPP</th>
+                            <th style={{ ...glThStyle, textAlign: 'left', minWidth: 110, borderRight: `1px solid ${C.border}` }}>RESULT</th>
                             {/* Stat columns */}
                             {metrics.map((metric, mi) => (
                               <th key={metric.key} style={{
@@ -1440,7 +1531,7 @@ function NGSTerminal({ onNavigate }) {
                               {/* Season divider row */}
                               <tr key={`season-${season}`}>
                                 <td
-                                  colSpan={2 + metrics.length}
+                                  colSpan={3 + metrics.length}
                                   style={{
                                     padding: '0.4rem 0.75rem',
                                     backgroundColor: C.goldDim,
@@ -1467,12 +1558,19 @@ function NGSTerminal({ onNavigate }) {
                                     : game.week > 18
                                       ? (['WC', 'DIV', 'CONF', 'SB'][game.week - 19] || `${game.week}`)
                                       : game.week
+                                  const resultParts = game.game_result ? game.game_result.split(' ') : []
+                                  const wl = resultParts[0]
+                                  const resultColor = wl === 'W' ? C.positive : wl === 'L' ? C.negative : C.muted
+                                  const homeAway = game.home_away === 'home' ? 'vs' : game.home_away === 'away' ? '@' : ''
+                                  const hasPlays = !!game.game_id
                                   return (
                                     <tr
                                       key={`${game.season}-${game.week}-${gIdx}`}
-                                      style={{ backgroundColor: rowBg, borderBottom: `1px solid ${C.border}` }}
+                                      style={{ backgroundColor: rowBg, borderBottom: `1px solid ${C.border}`, cursor: hasPlays ? 'pointer' : 'default' }}
                                       onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
                                       onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}
+                                      onClick={() => hasPlays && fetchGamePlays(game.game_id, selectedPlayer, `Wk ${game.week} vs ${game.opponent_team || '?'}`)}
+                                      title={hasPlays ? 'Click for play-by-play' : ''}
                                     >
                                       {/* Week */}
                                       <td style={{
@@ -1488,12 +1586,10 @@ function NGSTerminal({ onNavigate }) {
                                         {weekLabel}
                                       </td>
                                       {/* Opponent */}
-                                      <td style={{
-                                        padding: '0.5rem 0.75rem',
-                                        borderRight: `1px solid ${C.border}`,
-                                      }}>
+                                      <td style={{ padding: '0.5rem 0.75rem' }}>
                                         {game.opponent_team ? (
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                                            {homeAway && <span style={{ color: C.muted, fontSize: '0.7rem', fontFamily: C.fontCond, fontWeight: '600', minWidth: 14 }}>{homeAway}</span>}
                                             <TeamLogo abbr={game.opponent_team} size={22} />
                                             <span style={{ color: C.text, fontWeight: '600', fontFamily: C.font, fontSize: '0.82rem' }}>
                                               {game.opponent_team}
@@ -1502,6 +1598,15 @@ function NGSTerminal({ onNavigate }) {
                                         ) : (
                                           <span style={{ color: C.dim, fontFamily: C.font, fontSize: '0.78rem' }}>—</span>
                                         )}
+                                      </td>
+                                      {/* Result */}
+                                      <td style={{ padding: '0.5rem 0.75rem', borderRight: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>
+                                        {game.game_result ? (
+                                          <span style={{ fontFamily: C.fontStats, fontSize: '0.82rem' }}>
+                                            <span style={{ color: resultColor, fontWeight: '700' }}>{wl}</span>
+                                            <span style={{ color: C.text }}>{' '}{resultParts.slice(1).join(' ')}</span>
+                                          </span>
+                                        ) : <span style={{ color: C.dim }}>—</span>}
                                       </td>
                                       {/* Stats */}
                                       {metrics.map((metric, mi) => {
@@ -1928,7 +2033,7 @@ function NGSTerminal({ onNavigate }) {
                 ) : (() => {
                   const seasons = [...new Set(playerGameLogs.map(g => g.season))].sort((a, b) => b - a)
                   const posKey = selectedPlayer._posGroup || getPosGroup(selectedPlayer.player_position)
-                  const metrics = PLAYER_METRICS[posKey] || []
+                  const metrics = (GAME_LOG_METRICS[posKey] || PLAYER_METRICS[posKey] || [])
                   const glThStyle = { ...thStyle, backgroundColor: C.surface, padding: '0.6rem 0.75rem', fontSize: '0.68rem', letterSpacing: '0.07em', borderBottom: `2px solid ${C.border}`, position: 'sticky', top: 0, zIndex: 10 }
                   return (
                     <div style={{ overflowX: 'auto' }}>
@@ -1936,7 +2041,8 @@ function NGSTerminal({ onNavigate }) {
                         <thead>
                           <tr>
                             <th style={{ ...glThStyle, textAlign: 'center', width: 52, minWidth: 52, borderRight: `1px solid ${C.border}` }}>WK</th>
-                            <th style={{ ...glThStyle, textAlign: 'left', minWidth: 160, borderRight: `1px solid ${C.border}` }}>OPP</th>
+                            <th style={{ ...glThStyle, textAlign: 'left', minWidth: 160 }}>OPP</th>
+                            <th style={{ ...glThStyle, textAlign: 'left', minWidth: 110, borderRight: `1px solid ${C.border}` }}>RESULT</th>
                             {metrics.map((metric, mi) => (
                               <th key={metric.key} style={{ ...glThStyle, borderLeft: mi === 0 ? `1px solid ${C.border}` : 'none', color: C.muted }}>{metric.label}</th>
                             ))}
@@ -1953,16 +2059,30 @@ function NGSTerminal({ onNavigate }) {
                               {playerGameLogs.filter(g => g.season === season).map((game, gIdx) => {
                                 const rowBg = gIdx % 2 === 0 ? '#131319' : C.bg
                                 const weekLabel = game.week === 0 ? 'TOT' : game.week > 18 ? (['WC', 'DIV', 'CONF', 'SB'][game.week - 19] || `${game.week}`) : game.week
+                                const resultParts = game.game_result ? game.game_result.split(' ') : []
+                                const wl = resultParts[0]
+                                const resultColor = wl === 'W' ? C.positive : wl === 'L' ? C.negative : C.muted
+                                const homeAway = game.home_away === 'home' ? 'vs' : game.home_away === 'away' ? '@' : ''
+                                const hasPlays = !!game.game_id
                                 return (
-                                  <tr key={`${game.season}-${game.week}-${gIdx}`} style={{ backgroundColor: rowBg, borderBottom: `1px solid ${C.border}` }} onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover} onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg}>
+                                  <tr key={`${game.season}-${game.week}-${gIdx}`} style={{ backgroundColor: rowBg, borderBottom: `1px solid ${C.border}`, cursor: hasPlays ? 'pointer' : 'default' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover} onMouseLeave={e => e.currentTarget.style.backgroundColor = rowBg} onClick={() => hasPlays && fetchGamePlays(game.game_id, selectedPlayer, `Wk ${game.week} vs ${game.opponent_team || '?'}`)}>
                                     <td style={{ padding: '0.65rem 0.75rem', textAlign: 'center', color: C.muted, fontFamily: C.fontStats, fontWeight: '600', fontSize: '0.8rem', borderRight: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>{weekLabel}</td>
-                                    <td style={{ padding: '0.5rem 0.75rem', borderRight: `1px solid ${C.border}` }}>
+                                    <td style={{ padding: '0.5rem 0.75rem' }}>
                                       {game.opponent_team ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                                          {homeAway && <span style={{ color: C.muted, fontSize: '0.7rem', fontFamily: C.fontCond, fontWeight: '600', minWidth: 14 }}>{homeAway}</span>}
                                           <TeamLogo abbr={game.opponent_team} size={22} />
                                           <span style={{ color: C.text, fontWeight: '600', fontFamily: C.font, fontSize: '0.82rem' }}>{game.opponent_team}</span>
                                         </div>
                                       ) : <span style={{ color: C.dim, fontFamily: C.font, fontSize: '0.78rem' }}>—</span>}
+                                    </td>
+                                    <td style={{ padding: '0.5rem 0.75rem', borderRight: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>
+                                      {game.game_result ? (
+                                        <span style={{ fontFamily: C.fontStats, fontSize: '0.82rem' }}>
+                                          <span style={{ color: resultColor, fontWeight: '700' }}>{wl}</span>
+                                          <span style={{ color: C.text }}>{' '}{resultParts.slice(1).join(' ')}</span>
+                                        </span>
+                                      ) : <span style={{ color: C.dim }}>—</span>}
                                     </td>
                                     {metrics.map((metric, mi) => {
                                       const value = game[metric.key]
@@ -2006,6 +2126,108 @@ function NGSTerminal({ onNavigate }) {
       }}>
         NFL Next Gen Stats · RFID Tracking Data (10Hz) · 2016–Present
       </div>
+
+      {/* ── Play-by-Play Modal ──────────────────────────────────────────── */}
+      {selectedGame && (
+        <div
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.92)', zIndex: 2000, overflowY: 'auto', padding: '2rem' }}
+          onClick={() => { setSelectedGame(null); setGamePlays([]) }}
+        >
+          <div onClick={e => e.stopPropagation()} style={{ maxWidth: '1400px', margin: '0 auto', backgroundColor: C.bg, border: `1px solid ${C.borderBright}`, borderRadius: 8, overflow: 'hidden' }}>
+            {/* PBP Header */}
+            <div style={{ padding: '1.25rem 1.75rem', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.surface }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.3rem' }}>
+                  <PlayerAvatar name={selectedGame.player.player_display_name} headshotUrl={headshots[selectedGame.player.player_gsis_id]} size={36} />
+                  <h2 style={{ color: C.text, fontSize: '1.1rem', fontWeight: '800', margin: 0, fontFamily: C.fontDisplay }}>{selectedGame.player.player_display_name}</h2>
+                  <span style={{ color: C.muted, fontSize: '0.78rem', fontFamily: C.fontCond, letterSpacing: '0.06em', textTransform: 'uppercase' }}>· {selectedGame.label}</span>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: C.muted, fontFamily: C.fontCond, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Play-by-Play · {gamePlaysLoading ? '…' : `${gamePlays.length} plays`}
+                </div>
+              </div>
+              <button onClick={() => { setSelectedGame(null); setGamePlays([]) }} style={{ backgroundColor: 'transparent', color: C.muted, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0.5rem 1rem', cursor: 'pointer', fontFamily: C.font, fontSize: '0.8rem' }}>✕ Close</button>
+            </div>
+
+            {gamePlaysLoading ? (
+              <div style={{ padding: '4rem', textAlign: 'center', color: C.muted, fontFamily: C.font }}>Loading plays…</div>
+            ) : gamePlays.length === 0 ? (
+              <div style={{ padding: '4rem', textAlign: 'center', color: C.muted, fontFamily: C.font }}>
+                No play data found. Run a data refresh with <code style={{ color: C.gold }}>mode=plays</code> to populate.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: C.surface, borderBottom: `2px solid ${C.border}`, position: 'sticky', top: 0, zIndex: 10 }}>
+                      {[['QTR','center',40],['TIME','center',60],['DOWN','center',80],['YD LN','center',60],
+                        ['PLAY','left',400],['YDS','right',50],['EPA','right',60],['WPA','right',60],
+                        ['AIR','right',50],['YAC','right',50],['PASSER','left',140],['TARGET','left',140]].map(([lbl, align, w]) => (
+                        <th key={lbl} style={{ ...thStyle, textAlign: align, minWidth: w, backgroundColor: C.surface, fontSize: '0.65rem', padding: '0.5rem 0.6rem', borderBottom: `2px solid ${C.border}` }}>{lbl}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gamePlays.map((play, i) => {
+                      const rowBg = i % 2 === 0 ? '#131319' : C.bg
+                      const isTD = play.touchdown === 1
+                      const isInt = play.interception === 1
+                      const isSack = play.sack === 1
+                      const isFumble = play.fumble_lost === 1
+                      const epaColor = play.epa != null ? (play.epa > 0 ? C.positive : play.epa < 0 ? C.negative : C.muted) : C.muted
+                      const wpaColor = play.wpa != null ? (play.wpa > 0 ? C.positive : play.wpa < 0 ? C.negative : C.muted) : C.muted
+                      const mins = play.quarter_seconds_remaining != null ? Math.floor(play.quarter_seconds_remaining / 60) : null
+                      const secs = play.quarter_seconds_remaining != null ? play.quarter_seconds_remaining % 60 : null
+                      const timeLabel = mins != null ? `${mins}:${String(secs).padStart(2,'0')}` : '—'
+                      const qtrLabel = play.qtr != null ? (play.qtr > 4 ? 'OT' : `Q${play.qtr}`) : '—'
+                      const downLabel = play.down != null ? `${play.down}${['st','nd','rd','th'][Math.min(play.down-1,3)]} & ${play.ydstogo}` : '—'
+                      const ydLn = play.yardline_100 != null ? (play.yardline_100 === 50 ? '50' : play.yardline_100 > 50 ? `OPP ${100-play.yardline_100}` : `OWN ${play.yardline_100}`) : '—'
+                      // Build event badges
+                      const badges = []
+                      if (isTD) badges.push({ label: 'TD', color: C.positive })
+                      if (isInt) badges.push({ label: 'INT', color: C.negative })
+                      if (isSack) badges.push({ label: 'SACK', color: '#f80' })
+                      if (isFumble) badges.push({ label: 'FUM', color: C.negative })
+                      if (play.qb_hit === 1 && !isSack) badges.push({ label: 'HIT', color: '#f80' })
+                      if (play.play_action === 1) badges.push({ label: 'PA', color: C.muted })
+                      return (
+                        <tr key={i} style={{ backgroundColor: isTD ? 'rgba(52,208,88,0.08)' : isInt ? 'rgba(248,81,73,0.08)' : rowBg, borderBottom: `1px solid ${C.border}` }}
+                          onMouseEnter={e => e.currentTarget.style.backgroundColor = C.surfaceHover}
+                          onMouseLeave={e => e.currentTarget.style.backgroundColor = isTD ? 'rgba(52,208,88,0.08)' : isInt ? 'rgba(248,81,73,0.08)' : rowBg}
+                        >
+                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', color: C.muted, fontFamily: C.fontStats, fontWeight: '600' }}>{qtrLabel}</td>
+                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', color: C.muted, fontFamily: C.fontStats }}>{timeLabel}</td>
+                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', color: C.text, fontFamily: C.fontStats, whiteSpace: 'nowrap' }}>{downLabel}</td>
+                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', color: C.muted, fontFamily: C.fontStats, fontSize: '0.72rem' }}>{ydLn}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'left' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              <span style={{ color: C.text, fontFamily: C.font, fontSize: '0.76rem', lineHeight: 1.4 }}>{play.desc || '—'}</span>
+                              {badges.length > 0 && (
+                                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                                  {badges.map(b => (
+                                    <span key={b.label} style={{ display: 'inline-block', padding: '0.1rem 0.35rem', borderRadius: 3, border: `1px solid ${b.color}`, color: b.color, fontSize: '0.6rem', fontFamily: C.fontCond, fontWeight: '700', letterSpacing: '0.05em' }}>{b.label}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: (play.yards_gained || 0) > 0 ? C.text : C.negative, fontFamily: C.fontStats, fontWeight: '600' }}>{play.yards_gained != null ? play.yards_gained : '—'}</td>
+                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: epaColor, fontFamily: C.fontStats, fontWeight: '600' }}>{play.epa != null ? (play.epa >= 0 ? '+' : '') + play.epa.toFixed(2) : '—'}</td>
+                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: wpaColor, fontFamily: C.fontStats }}>{play.wpa != null ? (play.wpa >= 0 ? '+' : '') + (play.wpa * 100).toFixed(1) + '%' : '—'}</td>
+                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: C.muted, fontFamily: C.fontStats }}>{play.air_yards != null ? play.air_yards : '—'}</td>
+                          <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: C.muted, fontFamily: C.fontStats }}>{play.yards_after_catch != null ? play.yards_after_catch.toFixed(0) : '—'}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', color: C.text, fontFamily: C.font, fontSize: '0.76rem', whiteSpace: 'nowrap' }}>{play.passer_player_name || '—'}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', color: C.text, fontFamily: C.font, fontSize: '0.76rem', whiteSpace: 'nowrap' }}>{play.receiver_player_name || play.rusher_player_name || '—'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Glossary Modal ───────────────────────────────────────────────── */}
       {showGlossary && (

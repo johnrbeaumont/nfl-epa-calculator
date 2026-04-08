@@ -9,7 +9,7 @@ from typing import List, Dict, Literal
 import logging
 import time
 
-from .database import NGSPassing, NGSReceiving, NGSRushing, NGSDefense, NGSRefreshLog, SeasonalStats
+from .database import NGSPassing, NGSReceiving, NGSRushing, NGSDefense, NGSRefreshLog, SeasonalStats, Plays
 
 logger = logging.getLogger(__name__)
 
@@ -637,6 +637,205 @@ class NGSDataImporter:
             logger.error(f"Failed to import seasonal data: {e}")
             raise
 
+    # ── PBP columns to fetch/store ──────────────────────────────────────────
+    PBP_COLUMNS = [
+        'game_id', 'season', 'week', 'season_type', 'home_team', 'away_team',
+        'play_id', 'play_type', 'down', 'ydstogo', 'yardline_100',
+        'quarter_seconds_remaining', 'game_seconds_remaining', 'qtr',
+        'posteam', 'defteam', 'home_score', 'away_score', 'score_differential',
+        'desc', 'yards_gained', 'touchdown', 'first_down',
+        'pass_attempt', 'complete_pass', 'incomplete_pass',
+        'air_yards', 'yards_after_catch', 'pass_length', 'pass_location',
+        'no_huddle', 'shotgun', 'play_action',
+        'sack', 'qb_hit', 'qb_scramble', 'interception',
+        'rush_attempt',
+        'fumble', 'fumble_lost', 'penalty', 'penalty_yards',
+        'passer_player_id', 'passer_player_name',
+        'receiver_player_id', 'receiver_player_name',
+        'rusher_player_id', 'rusher_player_name',
+        'epa', 'wpa', 'cpoe',
+        'number_of_pass_rushers', 'defenders_in_box',
+    ]
+
+    def import_plays(self, years: List[int], mode: Literal['replace', 'upsert'] = 'upsert') -> Dict:
+        """Download and store full play-by-play data, then enrich NGSPassing."""
+        if not years:
+            raise ValueError("years list must not be empty")
+
+        logger.info(f"Importing PBP plays for years {years}")
+        total_inserted = 0
+        total_updated = 0
+
+        try:
+            # Fetch only the columns we need to keep memory low
+            cols_to_request = [c for c in self.PBP_COLUMNS]
+            pbp = _retry_fetch(nfl.import_pbp_data, years, columns=cols_to_request)
+
+            # Only keep actual scrimmage plays (not kickoffs / game_start etc.)
+            pbp = pbp[pbp['play_type'].notna()].copy()
+
+            # Coerce int columns (NaN → None)
+            int_cols = [
+                'play_id', 'down', 'ydstogo', 'yardline_100',
+                'quarter_seconds_remaining', 'game_seconds_remaining', 'qtr',
+                'home_score', 'away_score', 'score_differential',
+                'yards_gained', 'touchdown', 'first_down',
+                'pass_attempt', 'complete_pass', 'incomplete_pass',
+                'no_huddle', 'shotgun', 'play_action',
+                'sack', 'qb_hit', 'qb_scramble', 'interception',
+                'rush_attempt', 'fumble', 'fumble_lost', 'penalty', 'penalty_yards',
+                'number_of_pass_rushers', 'defenders_in_box',
+            ]
+            for col in int_cols:
+                if col in pbp.columns:
+                    pbp[col] = pd.to_numeric(pbp[col], errors='coerce').where(pbp[col].notna(), None)
+
+            pbp = pbp.where(pd.notnull(pbp), None)
+
+            if mode == 'replace':
+                deleted = self.db.query(Plays).filter(Plays.season.in_(years)).delete(synchronize_session=False)
+                logger.info(f"Deleted {deleted} existing play rows")
+                records = pbp.rename(columns={'fumble_lost': 'fumble_lost'}).to_dict('records')
+                # Insert in chunks to avoid memory issues
+                chunk_size = 5000
+                for i in range(0, len(records), chunk_size):
+                    chunk = records[i:i + chunk_size]
+                    # Only keep keys that match Plays model columns
+                    valid_cols = {c.name for c in Plays.__table__.columns}
+                    chunk = [{k: v for k, v in r.items() if k in valid_cols} for r in chunk]
+                    self.db.bulk_insert_mappings(Plays, chunk)
+                total_inserted = len(records)
+            else:
+                # Upsert: delete existing rows for these seasons, then re-insert
+                deleted = self.db.query(Plays).filter(Plays.season.in_(years)).delete(synchronize_session=False)
+                logger.info(f"Deleted {deleted} existing play rows for re-insert")
+                valid_cols = {c.name for c in Plays.__table__.columns}
+                records = [{k: v for k, v in r.items() if k in valid_cols}
+                           for r in pbp.to_dict('records')]
+                chunk_size = 5000
+                for i in range(0, len(records), chunk_size):
+                    self.db.bulk_insert_mappings(Plays, records[i:i + chunk_size])
+                total_inserted = len(records)
+
+            self.db.commit()
+            logger.info(f"Stored {total_inserted} plays for {years}")
+
+            # Now enrich NGSPassing with computed per-game stats
+            enriched = self._enrich_passing_with_pbp(pbp, years)
+            logger.info(f"Enriched {enriched} NGSPassing rows with PBP stats")
+
+            return {
+                'status': 'success',
+                'years': years,
+                'plays_stored': total_inserted,
+                'passing_rows_enriched': enriched,
+            }
+
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Failed to import plays: {e}")
+            raise
+
+    def _enrich_passing_with_pbp(self, pbp: pd.DataFrame, years: List[int]) -> int:
+        """
+        Compute per-QB-per-game stats from PBP and update NGSPassing rows.
+        Returns number of rows updated.
+        """
+        # Filter to dropback plays (pass attempts, sacks, scrambles)
+        dropback_mask = (
+            (pbp['pass_attempt'].fillna(0).astype(int) == 1) |
+            (pbp['sack'].fillna(0).astype(int) == 1) |
+            (pbp['qb_scramble'].fillna(0).astype(int) == 1)
+        )
+        db_plays = pbp[dropback_mask & pbp['passer_player_id'].notna()].copy()
+
+        if db_plays.empty:
+            return 0
+
+        # Compute final score per game (last row has final score)
+        final_scores = (
+            pbp.dropna(subset=['game_id', 'home_score', 'away_score'])
+            .groupby('game_id')
+            .agg(final_home=('home_score', 'max'), final_away=('away_score', 'max'),
+                 home_team=('home_team', 'first'))
+            .reset_index()
+        )
+        score_map = {
+            row['game_id']: {
+                'final_home': int(row['final_home']),
+                'final_away': int(row['final_away']),
+                'home_team': row['home_team'],
+            }
+            for _, row in final_scores.iterrows()
+        }
+
+        # Group by season/week/player
+        grp_cols = ['season', 'week', 'passer_player_id', 'game_id', 'posteam']
+        agg = db_plays.groupby(grp_cols).agg(
+            dropbacks=('pass_attempt', 'size'),
+            deep_attempts=('air_yards', lambda x: (x.fillna(0) >= 20).sum()),
+            total_attempts=('pass_attempt', lambda x: x.fillna(0).astype(int).sum()),
+            qb_hits=('qb_hit', lambda x: x.fillna(0).astype(int).sum()),
+            play_action_plays=('play_action', lambda x: x.fillna(0).astype(int).sum()),
+            blitz_plays=('number_of_pass_rushers', lambda x: (x.fillna(0).astype(int) >= 5).sum()),
+        ).reset_index()
+
+        updated = 0
+        for _, row in agg.iterrows():
+            season = int(row['season'])
+            week = int(row['week'])
+            player_id = row['passer_player_id']
+            game_id = row['game_id']
+            posteam = row['posteam']
+            n_dropbacks = int(row['dropbacks'])
+
+            # home/away
+            score_info = score_map.get(game_id, {})
+            home_team = score_info.get('home_team', '')
+            home_away = 'home' if posteam == home_team else 'away'
+
+            # game result
+            fh = score_info.get('final_home', 0)
+            fa = score_info.get('final_away', 0)
+            if posteam == home_team:
+                won = fh > fa
+                result_score = f"{fh}-{fa}"
+            else:
+                won = fa > fh
+                result_score = f"{fa}-{fh}"
+            if fh == fa:
+                game_result = f"T {result_score}"
+            else:
+                game_result = f"{'W' if won else 'L'} {result_score}"
+
+            # percentage stats
+            deep_pct = (row['deep_attempts'] / n_dropbacks * 100) if n_dropbacks > 0 else None
+            qb_hit_pct = (row['qb_hits'] / n_dropbacks * 100) if n_dropbacks > 0 else None
+            pa_pct = (row['play_action_plays'] / n_dropbacks * 100) if n_dropbacks > 0 else None
+            blitz_pct = (row['blitz_plays'] / n_dropbacks * 100) if n_dropbacks > 0 else None
+
+            # Update NGSPassing row
+            ngs_row = self.db.query(NGSPassing).filter(
+                NGSPassing.season == season,
+                NGSPassing.week == week,
+                NGSPassing.player_gsis_id == player_id,
+            ).first()
+
+            if ngs_row:
+                ngs_row.game_id = game_id
+                ngs_row.home_away = home_away
+                ngs_row.game_result = game_result
+                ngs_row.dropbacks = n_dropbacks
+                ngs_row.deep_pass_pct = round(deep_pct, 1) if deep_pct is not None else None
+                ngs_row.qb_hit_pct = round(qb_hit_pct, 1) if qb_hit_pct is not None else None
+                ngs_row.play_action_pct = round(pa_pct, 1) if pa_pct is not None else None
+                ngs_row.blitz_pct = round(blitz_pct, 1) if blitz_pct is not None else None
+                ngs_row.opponent_team = row.get('defteam') if 'defteam' in row else ngs_row.opponent_team
+                updated += 1
+
+        self.db.commit()
+        return updated
+
     def full_refresh(self, start_year: int = 2016, end_year: int = None) -> Dict:
         """
         Perform full refresh of all NGS data.
@@ -672,6 +871,12 @@ class NGSDataImporter:
         except Exception as e:
             results['defense'] = {'status': 'failed', 'error': str(e)}
 
+        try:
+            result = self.import_plays(years, mode='replace')
+            results['plays'] = result
+        except Exception as e:
+            results['plays'] = {'status': 'failed', 'error': str(e)}
+
         return results
 
     def incremental_refresh(self, season: int = None) -> Dict:
@@ -706,6 +911,12 @@ class NGSDataImporter:
             results['defense'] = result
         except Exception as e:
             results['defense'] = {'status': 'failed', 'error': str(e)}
+
+        try:
+            result = self.import_plays([season], mode='replace')
+            results['plays'] = result
+        except Exception as e:
+            results['plays'] = {'status': 'failed', 'error': str(e)}
 
         return results
 

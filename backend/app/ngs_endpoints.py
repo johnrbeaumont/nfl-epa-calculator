@@ -7,7 +7,7 @@ from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
 
 from sqlalchemy import and_
-from .database import get_db, NGSPassing, NGSReceiving, NGSRushing, NGSDefense, SeasonalStats
+from .database import get_db, NGSPassing, NGSReceiving, NGSRushing, NGSDefense, SeasonalStats, Plays
 from .ngs_scraper import NGSDataImporter
 
 router = APIRouter(prefix="/api/ngs", tags=["Next Gen Stats"])
@@ -47,6 +47,16 @@ class PassingStatsResponse(BaseModel):
     player_position: Optional[str] = None
     team_abbr: Optional[str] = None
     opponent_team: Optional[str] = None
+
+    # PBP-enriched per-game fields
+    game_id: Optional[str] = None
+    home_away: Optional[str] = None
+    game_result: Optional[str] = None
+    dropbacks: Optional[int] = None
+    deep_pass_pct: Optional[float] = None
+    qb_hit_pct: Optional[float] = None
+    play_action_pct: Optional[float] = None
+    blitz_pct: Optional[float] = None
 
     # Key metrics
     avg_time_to_throw: Optional[float] = None
@@ -675,6 +685,86 @@ def get_team_stats(
     }
 
 
+class PlayResponse(BaseModel):
+    play_id: Optional[int] = None
+    game_id: Optional[str] = None
+    season: Optional[int] = None
+    week: Optional[int] = None
+    qtr: Optional[int] = None
+    quarter_seconds_remaining: Optional[int] = None
+    game_seconds_remaining: Optional[int] = None
+    posteam: Optional[str] = None
+    defteam: Optional[str] = None
+    home_team: Optional[str] = None
+    away_team: Optional[str] = None
+    home_score: Optional[int] = None
+    away_score: Optional[int] = None
+    down: Optional[int] = None
+    ydstogo: Optional[int] = None
+    yardline_100: Optional[int] = None
+    play_type: Optional[str] = None
+    desc: Optional[str] = None
+    yards_gained: Optional[int] = None
+    touchdown: Optional[int] = None
+    first_down: Optional[int] = None
+    pass_attempt: Optional[int] = None
+    complete_pass: Optional[int] = None
+    incomplete_pass: Optional[int] = None
+    air_yards: Optional[float] = None
+    yards_after_catch: Optional[float] = None
+    pass_length: Optional[str] = None
+    pass_location: Optional[str] = None
+    sack: Optional[int] = None
+    qb_hit: Optional[int] = None
+    qb_scramble: Optional[int] = None
+    interception: Optional[int] = None
+    rush_attempt: Optional[int] = None
+    fumble: Optional[int] = None
+    fumble_lost: Optional[int] = None
+    penalty: Optional[int] = None
+    penalty_yards: Optional[int] = None
+    play_action: Optional[int] = None
+    shotgun: Optional[int] = None
+    no_huddle: Optional[int] = None
+    passer_player_id: Optional[str] = None
+    passer_player_name: Optional[str] = None
+    receiver_player_id: Optional[str] = None
+    receiver_player_name: Optional[str] = None
+    rusher_player_id: Optional[str] = None
+    rusher_player_name: Optional[str] = None
+    epa: Optional[float] = None
+    wpa: Optional[float] = None
+    cpoe: Optional[float] = None
+    number_of_pass_rushers: Optional[int] = None
+    defenders_in_box: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/plays", response_model=List[PlayResponse])
+def get_plays(
+    game_id: str = Query(..., description="nflfastR game_id e.g. 2024_01_KC_BAL"),
+    player_id: Optional[str] = Query(None, description="Filter to a specific player's plays (gsis_id)"),
+    db: Session = Depends(get_db),
+):
+    """
+    Return play-by-play records for a game, optionally filtered to one player.
+    Includes all pass/rush plays involving the player.
+    """
+    q = db.query(Plays).filter(Plays.game_id == game_id)
+
+    if player_id:
+        q = q.filter(
+            (Plays.passer_player_id == player_id) |
+            (Plays.rusher_player_id == player_id) |
+            (Plays.receiver_player_id == player_id)
+        )
+
+    plays = q.order_by(Plays.quarter_seconds_remaining.desc()).all()
+    return plays
+
+
 @router.get("/refresh-history")
 def get_refresh_history(
     limit: int = Query(10, description="Number of recent refreshes to return", ge=1, le=50),
@@ -692,7 +782,7 @@ def get_refresh_history(
 
 @router.post("/refresh", response_model=RefreshResponse)
 def trigger_refresh(
-    mode: str = Query("incremental", pattern="^(incremental|full|defense)$", description="Refresh mode"),
+    mode: str = Query("incremental", pattern="^(incremental|full|defense|plays)$", description="Refresh mode"),
     season: Optional[int] = Query(None, description="Specific season for incremental/defense refresh"),
     start_season: Optional[int] = Query(None, description="Start season for full/defense refresh", ge=2016),
     end_season: Optional[int] = Query(None, description="End season for full/defense refresh"),
@@ -725,6 +815,17 @@ def trigger_refresh(
                 years = [dt.now().year]
             result = importer.import_defense_from_pbp(years, mode='upsert')
             results = {'defense': result}
+        elif mode == "plays":
+            from datetime import datetime as dt
+            if season:
+                years = [season]
+            elif start_season:
+                e = end_season or dt.now().year
+                years = list(range(start_season, e + 1))
+            else:
+                years = list(range(2016, dt.now().year + 1))
+            result = importer.import_plays(years, mode='replace')
+            results = {'plays': result}
         else:
             results = importer.incremental_refresh(season=season)
 
