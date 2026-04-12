@@ -529,6 +529,22 @@ function SituationBar({ lastPlay, situation, homeAbbrev, awayAbbrev, homeTeam, a
         />
       )}
 
+      {/* Plays analyzed */}
+      {playCount > 0 && (
+        <StatChip
+          label="Plays analyzed"
+          value={<span style={{ fontSize: '0.82rem', fontWeight: 700, color: C.muted }}>{playCount}</span>}
+        />
+      )}
+
+      {/* Last play — inline chip, no truncation */}
+      {lastPlay?.play_text && (
+        <StatChip
+          label="Last Play"
+          value={<span style={{ fontSize: '0.8rem', color: C.muted, lineHeight: 1.5 }}>{lastPlay.play_text}</span>}
+        />
+      )}
+
       {/* Time */}
       {period && clock && (
         <StatChip
@@ -548,27 +564,6 @@ function SituationBar({ lastPlay, situation, homeAbbrev, awayAbbrev, homeTeam, a
             </div>
           }
         />
-      )}
-
-      {/* Plays analyzed */}
-      {playCount > 0 && (
-        <StatChip
-          label="Plays analyzed"
-          value={<span style={{ fontSize: '0.82rem', fontWeight: 700, color: C.muted }}>{playCount}</span>}
-        />
-      )}
-
-      {/* Last play — full width, no truncation */}
-      {lastPlay?.play_text && (
-        <div style={{ width: '100%', marginTop: '0.1rem' }}>
-          <div style={{
-            fontSize: '0.57rem', fontWeight: 700, letterSpacing: '0.1em',
-            color: C.dim, textTransform: 'uppercase', marginBottom: 3,
-          }}>Last Play</div>
-          <div style={{ fontSize: '0.8rem', color: C.muted, lineHeight: 1.5 }}>
-            {lastPlay.play_text}
-          </div>
-        </div>
       )}
     </div>
   )
