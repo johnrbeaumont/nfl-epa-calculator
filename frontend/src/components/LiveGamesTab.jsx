@@ -1,0 +1,951 @@
+import { useState, useEffect, useCallback } from 'react'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+const C = {
+  bg: '#0f0f13',
+  surface: '#17171e',
+  surfaceHover: '#1e1e28',
+  surfaceSelected: '#1a1a2e',
+  border: '#252535',
+  borderBright: '#35354a',
+  gold: '#c9a447',
+  goldDim: 'rgba(201,164,71,0.08)',
+  text: '#f0f0f0',
+  muted: '#7a7a8a',
+  dim: '#4a4a5a',
+  green: '#34d058',
+  red: '#f85149',
+  blue: '#4a9eff',
+  font: "'Courier New', monospace",
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const ORDINAL = (d) => ['', 'st', 'nd', 'rd', 'th'][d] ?? 'th'
+const downStr  = (d, yd) => d ? `${d}${ORDINAL(d)} & ${yd}` : null
+const fieldStr = (yl) => {
+  if (yl == null) return '—'
+  if (yl === 50)  return 'Midfield'
+  if (yl > 50)   return `Own ${100 - yl}`
+  return `Opp ${yl}`
+}
+const fmtEP = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2)
+const fmtWP = (v) => v == null ? '—' : `${(v * 100).toFixed(1)}%`
+const fmtDelta = (v, scale = 1) =>
+  v == null ? null : (v >= 0 ? '+' : '') + (v * scale).toFixed(scale === 100 ? 1 : 2) + (scale === 100 ? '%' : '')
+
+// ─── Hover Tooltip (HTML overlay, always readable at any SVG scale) ──────────
+function PlayTooltip({ play, clientX, clientY, homeAbbrev, awayAbbrev }) {
+  if (!play) return null
+
+  const yl      = play.yardline_100
+  const isRZ    = yl != null && yl <= 20
+  const posTeam = play.is_home_offense ? homeAbbrev : awayAbbrev
+  const epDelta = fmtDelta(play.ep_delta)
+  const wpDelta = fmtDelta(play.wp_delta, 100)
+  const text    = (play.play_text || '').trim()
+
+  // Keep tooltip inside viewport
+  const tipLeft = Math.min(clientX + 14, (typeof window !== 'undefined' ? window.innerWidth : 1400) - 230)
+  const tipTop  = Math.max(8, clientY - 50)
+
+  return (
+    <div style={{
+      position: 'fixed', left: tipLeft, top: tipTop,
+      zIndex: 9999, pointerEvents: 'none',
+      width: 218,
+      backgroundColor: '#0b0b10',
+      border: `1px solid ${C.borderBright}`,
+      borderRadius: 8,
+      padding: '9px 12px',
+      fontFamily: C.font,
+      fontSize: '0.73rem',
+      color: C.text,
+      lineHeight: 1.55,
+      boxShadow: '0 6px 24px rgba(0,0,0,0.65)',
+    }}>
+      {/* Possession + down/dist */}
+      <div style={{ marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <span style={{ color: C.gold, fontWeight: 700, fontSize: '0.78rem' }}>
+          {posTeam} ball
+        </span>
+        <span style={{ color: C.text, fontWeight: 700 }}>
+          {downStr(play.down, play.ydstogo) ?? '—'}
+        </span>
+      </div>
+
+      {/* Field position */}
+      <Row label="Field pos"
+        value={<span style={{ color: isRZ ? C.red : C.text, fontWeight: 600 }}>
+          {fieldStr(yl)}{isRZ ? ' (RZ)' : ''}
+        </span>}
+      />
+
+      {/* Score */}
+      <Row label="Score"
+        value={`${awayAbbrev} ${play.away_score}  —  ${homeAbbrev} ${play.home_score}`}
+      />
+
+      {/* Quarter + clock */}
+      <Row label="Time" value={`Q${play.period}  ${play.clock}`} />
+
+      <div style={{ borderTop: `1px solid ${C.border}`, margin: '6px 0' }} />
+
+      {/* EP */}
+      <Row
+        label="EP"
+        value={
+          <span>
+            <span style={{
+              color: play.ep > 0.2 ? C.green : play.ep < -0.2 ? C.red : C.muted,
+              fontWeight: 700,
+            }}>{fmtEP(play.ep)}</span>
+            {epDelta && (
+              <span style={{
+                color: play.ep_delta > 0 ? C.green : play.ep_delta < 0 ? C.red : C.muted,
+                fontSize: '0.65rem', marginLeft: 7,
+              }}>Δ{epDelta}</span>
+            )}
+          </span>
+        }
+      />
+
+      {/* WP */}
+      <Row
+        label={`${homeAbbrev} WP`}
+        value={
+          <span>
+            <span style={{ color: C.gold, fontWeight: 700 }}>{fmtWP(play.wp)}</span>
+            {wpDelta && (
+              <span style={{
+                color: play.wp_delta > 0 ? C.green : play.wp_delta < 0 ? C.red : C.muted,
+                fontSize: '0.65rem', marginLeft: 7,
+              }}>Δ{wpDelta}</span>
+            )}
+          </span>
+        }
+      />
+
+      {/* Play text */}
+      {text && (
+        <div style={{
+          borderTop: `1px solid ${C.border}`,
+          marginTop: 6, paddingTop: 5,
+          color: C.muted, fontSize: '0.67rem', lineHeight: 1.45,
+        }}>
+          {text.length > 68 ? text.slice(0, 68) + '…' : text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Row({ label, value }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, gap: 6 }}>
+      <span style={{ color: C.muted, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: C.text, textAlign: 'right' }}>{value}</span>
+    </div>
+  )
+}
+
+// ─── WP Chart ─────────────────────────────────────────────────────────────────
+function WPChart({ plays, homeAbbrev, awayAbbrev, homeColor, awayColor }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null)
+  const [tooltip, setTooltip]       = useState(null)
+
+  if (!plays || plays.length < 2) {
+    return (
+      <div style={{ color: C.muted, fontSize: '0.78rem', padding: '2rem 0', textAlign: 'center' }}>
+        {plays?.length === 1 ? '> Waiting for more plays…' : '> No play data yet'}
+      </div>
+    )
+  }
+
+  const W = 720, H = 130, PL = 42, PT = 8, PB = 20, PR = 8
+  const totalW = W + PL + PR, totalH = H + PT + PB
+  const n = plays.length
+  const xAt = (i) => PL + (i / Math.max(n - 1, 1)) * W
+  const yAt = (wp) => PT + (1 - wp) * H
+  const midY = yAt(0.5)
+
+  const homePolyPts = [
+    `${xAt(0)},${midY}`,
+    ...plays.map((p, i) => `${xAt(i)},${Math.min(yAt(p.wp), midY)}`),
+    `${xAt(n - 1)},${midY}`,
+  ].join(' ')
+
+  const awayPolyPts = [
+    `${xAt(0)},${midY}`,
+    ...plays.map((p, i) => `${xAt(i)},${Math.max(yAt(p.wp), midY)}`),
+    `${xAt(n - 1)},${midY}`,
+  ].join(' ')
+
+  const linePoints = plays.map((p, i) => `${xAt(i)},${yAt(p.wp)}`).join(' ')
+
+  const quarterBounds = []
+  let lastPeriod = plays[0].period
+  for (let i = 1; i < n; i++) {
+    if (plays[i].period !== lastPeriod) {
+      quarterBounds.push({ x: xAt(i), label: `Q${plays[i].period}` })
+      lastPeriod = plays[i].period
+    }
+  }
+
+  const handleMouseMove = (e) => {
+    const bbox = e.currentTarget.getBoundingClientRect()
+    const svgX = (e.clientX - bbox.left) / bbox.width * totalW
+    if (svgX < PL || svgX > PL + W) { setHoveredIdx(null); setTooltip(null); return }
+    const idx = Math.max(0, Math.min(n - 1, Math.round((svgX - PL) / W * (n - 1))))
+    setHoveredIdx(idx)
+    setTooltip({ play: plays[idx], clientX: e.clientX, clientY: e.clientY })
+  }
+
+  const handleMouseLeave = () => { setHoveredIdx(null); setTooltip(null) }
+
+  const hov = hoveredIdx !== null ? plays[hoveredIdx] : null
+
+  return (
+    <>
+      <svg
+        viewBox={`0 0 ${totalW} ${totalH}`}
+        style={{ width: '100%', height: 'auto', display: 'block', cursor: hoveredIdx !== null ? 'crosshair' : 'default' }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
+        <polygon points={homePolyPts} fill={`#${homeColor}20`} />
+        <polygon points={awayPolyPts} fill={`#${awayColor}20`} />
+
+        {quarterBounds.map((q, i) => (
+          <g key={i}>
+            <line x1={q.x} y1={PT} x2={q.x} y2={PT + H} stroke={C.borderBright} strokeWidth="1" strokeDasharray="2,4" />
+            <text x={q.x + 3} y={PT + 10} fontSize="8" fill={C.dim} fontFamily={C.font}>{q.label}</text>
+          </g>
+        ))}
+
+        <line x1={PL} y1={midY} x2={PL + W} y2={midY} stroke={C.borderBright} strokeWidth="1" strokeDasharray="4,3" />
+
+        {/* Hover crosshair */}
+        {hoveredIdx !== null && (
+          <>
+            <line
+              x1={xAt(hoveredIdx)} y1={PT}
+              x2={xAt(hoveredIdx)} y2={PT + H}
+              stroke={C.gold} strokeWidth="1" strokeDasharray="2,3" opacity="0.6"
+            />
+            <line
+              x1={PL} y1={yAt(hov.wp)}
+              x2={PL + W} y2={yAt(hov.wp)}
+              stroke={C.gold} strokeWidth="1" strokeDasharray="2,3" opacity="0.3"
+            />
+          </>
+        )}
+
+        <polyline points={linePoints} fill="none" stroke={C.gold} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* Last play dot */}
+        <circle cx={xAt(n - 1)} cy={yAt(plays[n - 1].wp)} r="4" fill={C.gold} />
+
+        {/* Hovered dot (larger) */}
+        {hoveredIdx !== null && hoveredIdx !== n - 1 && (
+          <circle cx={xAt(hoveredIdx)} cy={yAt(hov.wp)} r="5" fill={C.gold} stroke="#0f0f13" strokeWidth="1.5" />
+        )}
+
+        {[1.0, 0.75, 0.5, 0.25, 0.0].map(wp => (
+          <text key={wp} x={PL - 4} y={yAt(wp) + 3.5} textAnchor="end" fontSize="8.5" fill={C.muted} fontFamily={C.font}>
+            {`${(wp * 100).toFixed(0)}%`}
+          </text>
+        ))}
+
+        <text x={PL + 2} y={midY - 5}  fontSize="8.5" fill={`#${homeColor}`} fontFamily={C.font} fontWeight="700">{homeAbbrev}</text>
+        <text x={PL + 2} y={midY + 13} fontSize="8.5" fill={`#${awayColor}`} fontFamily={C.font} fontWeight="700">{awayAbbrev}</text>
+      </svg>
+
+      {tooltip && (
+        <PlayTooltip
+          play={tooltip.play}
+          clientX={tooltip.clientX}
+          clientY={tooltip.clientY}
+          homeAbbrev={homeAbbrev}
+          awayAbbrev={awayAbbrev}
+        />
+      )}
+    </>
+  )
+}
+
+// ─── EP Chart ─────────────────────────────────────────────────────────────────
+function EPChart({ plays, homeAbbrev, awayAbbrev }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null)
+  const [tooltip, setTooltip]       = useState(null)
+
+  if (!plays || plays.length < 2) return null
+
+  const W = 720, H = 110, PL = 42, PT = 8, PB = 20, PR = 8
+  const totalW = W + PL + PR, totalH = H + PT + PB
+  const n = plays.length
+  const EP_MAX = 7
+  const xAt  = (i)  => PL + (i / Math.max(n - 1, 1)) * W
+  const yAt  = (ep) => PT + H / 2 - (ep / EP_MAX) * (H / 2)
+  const zeroY = PT + H / 2
+  const barW  = Math.max(2, Math.min(10, (W / n) * 0.7))
+
+  const linePoints = plays.map((p, i) => `${xAt(i)},${yAt(p.ep)}`).join(' ')
+
+  const handleMouseMove = (e) => {
+    const bbox = e.currentTarget.getBoundingClientRect()
+    const svgX = (e.clientX - bbox.left) / bbox.width * totalW
+    if (svgX < PL || svgX > PL + W) { setHoveredIdx(null); setTooltip(null); return }
+    const idx = Math.max(0, Math.min(n - 1, Math.round((svgX - PL) / W * (n - 1))))
+    setHoveredIdx(idx)
+    setTooltip({ play: plays[idx], clientX: e.clientX, clientY: e.clientY })
+  }
+
+  const handleMouseLeave = () => { setHoveredIdx(null); setTooltip(null) }
+
+  return (
+    <>
+      <svg
+        viewBox={`0 0 ${totalW} ${totalH}`}
+        style={{ width: '100%', height: 'auto', display: 'block', cursor: hoveredIdx !== null ? 'crosshair' : 'default' }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
+        <line x1={PL} y1={zeroY} x2={PL + W} y2={zeroY} stroke={C.borderBright} strokeWidth="1" />
+
+        {/* Hover guide line */}
+        {hoveredIdx !== null && (
+          <line
+            x1={xAt(hoveredIdx)} y1={PT}
+            x2={xAt(hoveredIdx)} y2={PT + H}
+            stroke={C.gold} strokeWidth="1" strokeDasharray="2,3" opacity="0.6"
+          />
+        )}
+
+        {/* EP bars */}
+        {plays.map((p, i) => {
+          const bx   = xAt(i) - barW / 2
+          const barY = yAt(p.ep)
+          const barH = Math.abs(barY - zeroY)
+          const isHov = i === hoveredIdx
+          const fill  = p.is_home_offense ? C.blue : C.gold
+          return (
+            <rect
+              key={p.play_id || i}
+              x={bx}
+              y={p.ep >= 0 ? barY : zeroY}
+              width={isHov ? barW * 1.6 : barW}
+              height={Math.max(1, barH)}
+              fill={fill}
+              opacity={isHov ? 0.95 : 0.65}
+            />
+          )
+        })}
+
+        <polyline points={linePoints} fill="none" stroke={`${C.muted}88`} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* Dots */}
+        <circle cx={xAt(n - 1)} cy={yAt(plays[n - 1].ep)} r="3.5" fill={C.gold} />
+        {hoveredIdx !== null && hoveredIdx !== n - 1 && (
+          <circle cx={xAt(hoveredIdx)} cy={yAt(plays[hoveredIdx].ep)} r="5" fill={C.gold} stroke="#0f0f13" strokeWidth="1.5" />
+        )}
+
+        {[EP_MAX, 3.5, 0, -3.5, -EP_MAX].map(v => (
+          <text key={v} x={PL - 4} y={yAt(v) + 3.5} textAnchor="end" fontSize="8.5" fill={C.muted} fontFamily={C.font}>
+            {v > 0 ? `+${v}` : v}
+          </text>
+        ))}
+
+        {/* Legend */}
+        <rect x={PL + W - 80} y={PT} width="8" height="8" fill={C.blue}  opacity="0.8" />
+        <text x={PL + W - 68} y={PT + 7.5} fontSize="8" fill={C.muted} fontFamily={C.font}>{homeAbbrev}</text>
+        <rect x={PL + W - 40} y={PT} width="8" height="8" fill={C.gold} opacity="0.8" />
+        <text x={PL + W - 28} y={PT + 7.5} fontSize="8" fill={C.muted} fontFamily={C.font}>{awayAbbrev}</text>
+      </svg>
+
+      {tooltip && (
+        <PlayTooltip
+          play={tooltip.play}
+          clientX={tooltip.clientX}
+          clientY={tooltip.clientY}
+          homeAbbrev={homeAbbrev}
+          awayAbbrev={awayAbbrev}
+        />
+      )}
+    </>
+  )
+}
+
+// ─── Situation Bar (shown inside the game header) ─────────────────────────────
+function StatChip({ label, value, badge }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: '0.58rem', color: C.dim, letterSpacing: '0.1em',
+        fontWeight: 700, textTransform: 'uppercase', marginBottom: 3,
+      }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        {value}
+        {badge && (
+          <span style={{
+            fontSize: '0.56rem', fontWeight: 700, letterSpacing: '0.05em',
+            color: C.red, backgroundColor: 'rgba(248,81,73,0.12)',
+            border: '1px solid rgba(248,81,73,0.3)',
+            borderRadius: 3, padding: '1px 4px',
+          }}>{badge}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Dot({ filled }) {
+  return (
+    <span style={{
+      display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+      backgroundColor: filled ? 'currentColor' : 'transparent',
+      border: '1.5px solid currentColor', marginRight: 2,
+      verticalAlign: 'middle',
+    }} />
+  )
+}
+
+function SituationBar({ lastPlay, situation, homeAbbrev, awayAbbrev, homeTeam, awayTeam, playCount }) {
+  if (!lastPlay && !situation) return null
+
+  const down  = lastPlay?.down
+  const ydstg = lastPlay?.ydstogo
+  const yl100 = lastPlay?.yardline_100
+  const isHomeOff = lastPlay?.is_home_offense
+  const period = lastPlay?.period
+  const clock  = lastPlay?.clock
+  const isRZ   = yl100 != null && yl100 <= 20
+
+  const posTeam  = isHomeOff != null ? (isHomeOff ? homeAbbrev : awayAbbrev) : null
+  const posColor = isHomeOff ? C.blue : C.gold
+
+  // Timeouts from live scoreboard situation
+  const homeTO = situation?.home_timeouts
+  const awayTO  = situation?.away_timeouts
+
+  const TimeoutRow = ({ abbrev, count, color }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <span style={{ color: C.muted, fontSize: '0.68rem', minWidth: 24 }}>{abbrev}</span>
+      <span style={{ color, display: 'flex', alignItems: 'center' }}>
+        {[0, 1, 2].map(i => <Dot key={i} filled={i < count} />)}
+      </span>
+    </div>
+  )
+
+  return (
+    <div style={{
+      borderTop: `1px solid ${C.border}`,
+      paddingTop: '0.75rem', marginTop: '0.75rem',
+      display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'flex-start',
+    }}>
+      {/* Possession */}
+      {posTeam && (
+        <StatChip
+          label="Possession"
+          value={<span style={{ fontSize: '0.82rem', fontWeight: 700, color: posColor }}>{posTeam}</span>}
+        />
+      )}
+
+      {/* Down & distance */}
+      {downStr(down, ydstg) && (
+        <StatChip
+          label="Situation"
+          value={<span style={{ fontSize: '0.82rem', fontWeight: 700, color: C.text }}>{downStr(down, ydstg)}</span>}
+        />
+      )}
+
+      {/* Field position */}
+      {yl100 != null && (
+        <StatChip
+          label="Field pos"
+          value={<span style={{ fontSize: '0.82rem', fontWeight: 700, color: isRZ ? C.red : C.text }}>{fieldStr(yl100)}</span>}
+          badge={isRZ ? 'RED ZONE' : null}
+        />
+      )}
+
+      {/* Time */}
+      {period && clock && (
+        <StatChip
+          label="Time"
+          value={<span style={{ fontSize: '0.82rem', fontWeight: 700, color: C.text }}>Q{period}  {clock}</span>}
+        />
+      )}
+
+      {/* Timeouts */}
+      {(homeTO != null || awayTO != null) && (
+        <StatChip
+          label="Timeouts"
+          value={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <TimeoutRow abbrev={awayAbbrev} count={awayTO ?? 3} color={C.gold} />
+              <TimeoutRow abbrev={homeAbbrev} count={homeTO ?? 3} color={C.blue} />
+            </div>
+          }
+        />
+      )}
+
+      {/* Plays analyzed — push to right */}
+      {playCount > 0 && (
+        <StatChip
+          label="Plays analyzed"
+          value={<span style={{ fontSize: '0.82rem', fontWeight: 700, color: C.muted }}>{playCount}</span>}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Game Card ────────────────────────────────────────────────────────────────
+function GameCard({ game, selected, onClick }) {
+  const [hovered, setHovered] = useState(false)
+  const { status, home_team, away_team } = game
+  const isLive = status.is_live
+  const isFinal = status.is_final
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        backgroundColor: selected ? C.surfaceSelected : hovered ? C.surfaceHover : C.surface,
+        border: `1px solid ${selected ? C.gold : hovered ? C.borderBright : C.border}`,
+        borderRadius: 10, padding: '0.9rem 1.1rem',
+        minWidth: 148, maxWidth: 180,
+        color: C.text, cursor: 'pointer', fontFamily: C.font,
+        textAlign: 'left', flexShrink: 0, position: 'relative',
+        transition: 'border-color 0.15s, background-color 0.15s',
+      }}
+    >
+      {isLive && (
+        <span style={{
+          position: 'absolute', top: 8, right: 8,
+          width: 7, height: 7, borderRadius: '50%',
+          backgroundColor: C.green, display: 'inline-block',
+          boxShadow: `0 0 5px ${C.green}`,
+        }} />
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+        <span style={{ fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.03em' }}>{away_team.abbrev}</span>
+        <span style={{ fontSize: '1.05rem', fontWeight: 800, color: isFinal || isLive ? C.text : C.muted }}>{away_team.score}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+        <span style={{ fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.03em' }}>{home_team.abbrev}</span>
+        <span style={{ fontSize: '1.05rem', fontWeight: 800, color: isFinal || isLive ? C.text : C.muted }}>{home_team.score}</span>
+      </div>
+      <div style={{
+        fontSize: '0.68rem',
+        color: isLive ? C.green : isFinal ? C.dim : C.gold,
+        fontWeight: 600, letterSpacing: '0.04em',
+        borderTop: `1px solid ${C.border}`, paddingTop: 6,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        {status.detail || (isLive ? 'LIVE' : isFinal ? 'FINAL' : 'UPCOMING')}
+      </div>
+    </button>
+  )
+}
+
+// ─── Recent Plays Table ───────────────────────────────────────────────────────
+function RecentPlays({ plays, homeAbbrev, awayAbbrev }) {
+  if (!plays || plays.length === 0) return null
+  const recent = [...plays].slice(-15).reverse()
+
+  const epDeltaColor = (v) => v == null ? C.muted : v > 0.5 ? C.green : v < -0.5 ? C.red : C.muted
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem', fontFamily: C.font }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+            {['QTR', 'CLOCK', 'TEAM', 'SITUATION', 'FIELD POS', 'EP', 'ΔEPA', 'HOME WP%', 'PLAY'].map(h => (
+              <th key={h} style={{
+                padding: '0.4rem 0.6rem', textAlign: 'left',
+                color: C.muted, fontWeight: 600, fontSize: '0.63rem',
+                letterSpacing: '0.06em', whiteSpace: 'nowrap',
+              }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {recent.map((p, i) => (
+            <tr key={p.play_id || i} style={{
+              borderBottom: `1px solid ${C.border}`,
+              backgroundColor: p.scoring_play ? C.goldDim : 'transparent',
+            }}>
+              <td style={{ padding: '0.45rem 0.6rem', color: C.muted }}>Q{p.period}</td>
+              <td style={{ padding: '0.45rem 0.6rem', color: C.muted, whiteSpace: 'nowrap' }}>{p.clock}</td>
+              <td style={{ padding: '0.45rem 0.6rem', fontWeight: 700, color: p.is_home_offense ? C.blue : C.gold }}>
+                {p.is_home_offense ? homeAbbrev : awayAbbrev}
+              </td>
+              <td style={{ padding: '0.45rem 0.6rem', color: C.muted, whiteSpace: 'nowrap' }}>
+                {p.down ? `${p.down}${ORDINAL(p.down)} & ${p.ydstogo}` : '—'}
+              </td>
+              <td style={{ padding: '0.45rem 0.6rem', color: p.yardline_100 <= 20 ? C.red : C.muted, whiteSpace: 'nowrap' }}>
+                {fieldStr(p.yardline_100)}
+              </td>
+              <td style={{
+                padding: '0.45rem 0.6rem',
+                color: p.ep > 0.2 ? C.green : p.ep < -0.2 ? C.red : C.muted,
+                fontWeight: 600, textAlign: 'right',
+              }}>
+                {fmtEP(p.ep)}
+              </td>
+              <td style={{
+                padding: '0.45rem 0.6rem',
+                color: epDeltaColor(p.ep_delta),
+                fontWeight: 600, textAlign: 'right',
+              }}>
+                {fmtDelta(p.ep_delta) ?? '—'}
+              </td>
+              <td style={{ padding: '0.45rem 0.6rem', color: C.text, textAlign: 'right' }}>
+                {fmtWP(p.wp)}
+              </td>
+              <td style={{
+                padding: '0.45rem 0.6rem', color: C.text,
+                maxWidth: 260, overflow: 'hidden',
+                textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {p.play_text || '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ─── Misc UI Helpers ──────────────────────────────────────────────────────────
+function SectionHeader({ children }) {
+  return (
+    <div style={{
+      fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.14em',
+      color: C.gold, textTransform: 'uppercase', marginBottom: '0.75rem',
+      display: 'flex', alignItems: 'center', gap: '0.5rem',
+    }}>
+      <span>{'>'}</span><span>{children}</span>
+    </div>
+  )
+}
+
+function ChartBlock({ label, children }) {
+  return (
+    <div style={{
+      backgroundColor: C.surface, border: `1px solid ${C.border}`,
+      borderRadius: 10, padding: '1rem 1.25rem', marginBottom: '1rem',
+    }}>
+      <div style={{
+        fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.12em',
+        color: C.muted, textTransform: 'uppercase', marginBottom: '0.5rem',
+      }}>{label}</div>
+      {children}
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+export default function LiveGamesTab({ onNavigate }) {
+  const [games,        setGames]        = useState([])
+  const [selectedId,   setSelectedId]   = useState(null)
+  const [gameDetail,   setGameDetail]   = useState(null)
+  const [boardLoading, setBoardLoading] = useState(true)
+  const [detailLoading,setDetailLoading]= useState(false)
+  const [lastUpdated,  setLastUpdated]  = useState(null)
+  const [boardError,   setBoardError]   = useState(null)
+
+  const fetchScoreboard = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/live/scoreboard`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setGames(data.games || [])
+      setLastUpdated(new Date())
+      setBoardError(null)
+    } catch {
+      setBoardError('Could not load scoreboard — check backend connection')
+    } finally {
+      setBoardLoading(false)
+    }
+  }, [])
+
+  const fetchGameDetail = useCallback(async (gameId) => {
+    setDetailLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/live/game/${gameId}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setGameDetail(await res.json())
+    } catch (err) {
+      console.error('Game detail fetch failed:', err)
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
+
+  // Scoreboard: poll every 30 s
+  useEffect(() => {
+    fetchScoreboard()
+    const t = setInterval(fetchScoreboard, 30000)
+    return () => clearInterval(t)
+  }, [fetchScoreboard])
+
+  // Game detail: fetch on selection; poll every 30 s if live
+  const selectedGame = games.find(g => g.id === selectedId) ?? null
+  useEffect(() => {
+    if (!selectedId) return
+    fetchGameDetail(selectedId)
+    if (!selectedGame?.status?.is_live) return
+    const t = setInterval(() => fetchGameDetail(selectedId), 30000)
+    return () => clearInterval(t)
+  }, [selectedId, selectedGame?.status?.is_live, fetchGameDetail])
+
+  const anyLive  = games.some(g => g.status.is_live)
+  const timeFmt  = lastUpdated
+    ? lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : '—'
+
+  const plays    = gameDetail?.plays ?? []
+  const lastPlay = plays.length > 0 ? plays[plays.length - 1] : null
+
+  return (
+    <div style={{ minHeight: '100vh', backgroundColor: C.bg, color: C.text, fontFamily: C.font }}>
+
+      {/* ── Nav bar ── */}
+      <div style={{
+        borderBottom: `1px solid ${C.border}`, padding: '0.75rem 1.5rem',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        backgroundColor: C.surface,
+      }}>
+        <button
+          onClick={onNavigate}
+          style={{
+            background: 'none', border: `1px solid ${C.border}`, borderRadius: 6,
+            color: C.muted, fontSize: '0.72rem', fontFamily: C.font,
+            padding: '0.3rem 0.7rem', cursor: 'pointer',
+          }}
+          onMouseEnter={e => { e.target.style.borderColor = C.gold; e.target.style.color = C.gold }}
+          onMouseLeave={e => { e.target.style.borderColor = C.border; e.target.style.color = C.muted }}
+        >← HOME</button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.18em', color: C.gold }}>
+            LIVE GAMES
+          </span>
+          {anyLive && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.65rem', color: C.green }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: C.green, display: 'inline-block', boxShadow: `0 0 5px ${C.green}` }} />
+              LIVE
+            </span>
+          )}
+        </div>
+
+        <span style={{ fontSize: '0.68rem', color: C.dim }}>Updated: {timeFmt}</span>
+      </div>
+
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '1.25rem 1.5rem 3rem' }}>
+
+        {/* ── Scoreboard ── */}
+        <div style={{ marginBottom: '1.75rem' }}>
+          <SectionHeader>Scoreboard</SectionHeader>
+
+          {boardLoading && (
+            <div style={{ color: C.muted, fontSize: '0.78rem', padding: '1.5rem 0' }}>{'> Loading scoreboard…'}</div>
+          )}
+          {boardError && !boardLoading && (
+            <div style={{ color: C.red, fontSize: '0.78rem', padding: '1.5rem 0' }}>{'> '}{boardError}</div>
+          )}
+          {!boardLoading && !boardError && games.length === 0 && (
+            <div style={{
+              color: C.muted, fontSize: '0.8rem', padding: '1.5rem',
+              border: `1px solid ${C.border}`, borderRadius: 10, backgroundColor: C.surface,
+            }}>
+              <div style={{ color: C.gold, marginBottom: '0.5rem' }}>{'> NO GAMES CURRENTLY SCHEDULED'}</div>
+              <div style={{ lineHeight: 1.7 }}>NFL regular season runs September through January. The board will be empty during the off-season.</div>
+            </div>
+          )}
+          {!boardLoading && games.length > 0 && (
+            <div style={{
+              display: 'flex', gap: '0.75rem',
+              overflowX: 'auto', paddingBottom: '0.5rem',
+              scrollbarWidth: 'thin', scrollbarColor: `${C.border} transparent`,
+            }}>
+              {games.map(game => (
+                <GameCard
+                  key={game.id}
+                  game={game}
+                  selected={selectedId === game.id}
+                  onClick={() => {
+                    if (selectedId !== game.id) setGameDetail(null)
+                    setSelectedId(game.id)
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Game Detail ── */}
+        {selectedGame && (
+          <div>
+
+            {/* ── Scoreline + Situation ── */}
+            <div style={{
+              backgroundColor: C.surface, border: `1px solid ${C.border}`,
+              borderRadius: 10, padding: '1rem 1.4rem', marginBottom: '1rem',
+            }}>
+              {/* Top row: teams + scores + status */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+
+                {/* Scores */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                  <ScoreBlock
+                    label="AWAY"
+                    abbrev={selectedGame.away_team.abbrev}
+                    score={gameDetail?.away_team.score ?? selectedGame.away_team.score}
+                    color={`#${selectedGame.away_team.color}`}
+                  />
+                  <span style={{ color: C.dim, fontSize: '0.9rem', fontWeight: 600 }}>@</span>
+                  <ScoreBlock
+                    label="HOME"
+                    abbrev={selectedGame.home_team.abbrev}
+                    score={gameDetail?.home_team.score ?? selectedGame.home_team.score}
+                    color={`#${selectedGame.home_team.color}`}
+                  />
+                </div>
+
+                {/* Status */}
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{
+                    fontSize: '0.85rem', fontWeight: 700,
+                    color: selectedGame.status.is_live ? C.green
+                      : selectedGame.status.is_final ? C.muted : C.gold,
+                    marginBottom: 2,
+                  }}>
+                    {gameDetail?.status.detail || selectedGame.status.detail || '—'}
+                  </div>
+                  {detailLoading && (
+                    <div style={{ fontSize: '0.68rem', color: C.gold }}>› Updating…</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Situation bar */}
+              <SituationBar
+                lastPlay={lastPlay}
+                situation={selectedGame.situation}
+                homeAbbrev={selectedGame.home_team.abbrev}
+                awayAbbrev={selectedGame.away_team.abbrev}
+                homeTeam={selectedGame.home_team}
+                awayTeam={selectedGame.away_team}
+                playCount={plays.length}
+              />
+            </div>
+
+            {/* Charts */}
+            {plays.length >= 2 && (
+              <>
+                <ChartBlock label="Win Probability — Home Team %">
+                  <WPChart
+                    plays={plays}
+                    homeAbbrev={selectedGame.home_team.abbrev}
+                    awayAbbrev={selectedGame.away_team.abbrev}
+                    homeColor={selectedGame.home_team.color}
+                    awayColor={selectedGame.away_team.color}
+                  />
+                  <div style={{ display: 'flex', gap: '2rem', marginTop: '0.4rem', fontSize: '0.78rem' }}>
+                    <span>
+                      <span style={{ color: C.muted }}>Home ({selectedGame.home_team.abbrev}): </span>
+                      <span style={{ color: C.gold, fontWeight: 700 }}>{fmtWP(lastPlay?.wp)}</span>
+                    </span>
+                    <span>
+                      <span style={{ color: C.muted }}>Away ({selectedGame.away_team.abbrev}): </span>
+                      <span style={{ color: C.gold, fontWeight: 700 }}>
+                        {lastPlay ? fmtWP(1 - lastPlay.wp) : '—'}
+                      </span>
+                    </span>
+                    <span style={{ color: C.dim, fontSize: '0.68rem', marginLeft: 'auto' }}>
+                      Hover for play details
+                    </span>
+                  </div>
+                </ChartBlock>
+
+                <ChartBlock label="Expected Points — Per Play">
+                  <EPChart
+                    plays={plays}
+                    homeAbbrev={selectedGame.home_team.abbrev}
+                    awayAbbrev={selectedGame.away_team.abbrev}
+                  />
+                  <div style={{ fontSize: '0.68rem', color: C.dim, marginTop: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>
+                      Bar: <span style={{ color: C.blue }}>■</span> {selectedGame.home_team.abbrev} offense &nbsp;|&nbsp;
+                      <span style={{ color: C.gold }}>■</span> {selectedGame.away_team.abbrev} offense
+                    </span>
+                    <span style={{ color: C.dim }}>Hover for play details</span>
+                  </div>
+                </ChartBlock>
+              </>
+            )}
+
+            {/* Waiting state */}
+            {plays.length < 2 && !detailLoading && (
+              <div style={{
+                backgroundColor: C.surface, border: `1px solid ${C.border}`,
+                borderRadius: 10, padding: '2rem', textAlign: 'center',
+                color: C.muted, fontSize: '0.82rem', marginBottom: '1rem',
+              }}>
+                {selectedGame.status.is_pregame
+                  ? '> GAME HAS NOT STARTED — charts will appear once plays begin'
+                  : plays.length === 0 ? '> Loading play-by-play data…' : '> Waiting for more plays to build charts'}
+              </div>
+            )}
+
+            {/* Recent plays */}
+            {plays.length > 0 && (
+              <div style={{
+                backgroundColor: C.surface, border: `1px solid ${C.border}`,
+                borderRadius: 10, padding: '1rem 1.25rem',
+              }}>
+                <div style={{
+                  fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.12em',
+                  color: C.muted, textTransform: 'uppercase', marginBottom: '0.5rem',
+                }}>
+                  Recent Plays (last {Math.min(plays.length, 15)})
+                </div>
+                <RecentPlays
+                  plays={plays}
+                  homeAbbrev={selectedGame.home_team.abbrev}
+                  awayAbbrev={selectedGame.away_team.abbrev}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {!selectedId && !boardLoading && games.length > 0 && (
+          <div style={{
+            color: C.muted, fontSize: '0.8rem', textAlign: 'center',
+            padding: '2.5rem', border: `1px dashed ${C.border}`, borderRadius: 10,
+          }}>
+            {'> Select a game above to view EP and Win Probability charts'}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ScoreBlock({ label, abbrev, score, color }) {
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div style={{ fontSize: '0.6rem', color: C.muted, marginBottom: 2, letterSpacing: '0.08em' }}>{label}</div>
+      <div style={{ fontSize: '1.05rem', fontWeight: 800, letterSpacing: '0.04em', color }}>{abbrev}</div>
+      <div style={{ fontSize: '1.7rem', fontWeight: 900, color: C.text, lineHeight: 1.1 }}>{score}</div>
+    </div>
+  )
+}

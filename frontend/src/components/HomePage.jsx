@@ -49,7 +49,7 @@ function HomePage({ onNavigate }) {
           <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: '#34d058' }} />
           <span>System Online</span>
           <span style={{ color: C.dim }}>·</span>
-          <span>2 Modules</span>
+          <span>3 Modules</span>
           <span style={{ color: C.dim }}>·</span>
           <span>Data: 2016–2025</span>
         </div>
@@ -58,9 +58,9 @@ function HomePage({ onNavigate }) {
       {/* Module tiles */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
+        gridTemplateColumns: 'repeat(3, 1fr)',
         gap: '1.25rem',
-        maxWidth: '860px',
+        maxWidth: '1100px',
         width: '100%',
       }}>
         <ModuleTile
@@ -70,9 +70,9 @@ function HomePage({ onNavigate }) {
           subtitle="Win Probability"
           description="Calculate Expected Points Added and Win Probability for any NFL game situation. Enter down, distance, field position, score, and time remaining for instant ML-powered predictions."
           stats={[
-            { label: 'Model', value: 'XGBoost' },
-            { label: 'R²', value: '0.962' },
-            { label: 'Plays', value: '285K+' },
+            { label: 'Model', value: 'LightGBM' },
+            { label: 'R²', value: '0.955' },
+            { label: 'Plays', value: '344K+' },
           ]}
           onClick={() => onNavigate('calculator')}
         />
@@ -88,6 +88,19 @@ function HomePage({ onNavigate }) {
             { label: 'Seasons', value: '2016–2025' },
           ]}
           onClick={() => onNavigate('stats')}
+        />
+        <ModuleTile
+          index="03"
+          tag="Real-Time"
+          title="Live Games"
+          subtitle="EP · WP · Play-by-Play"
+          description="Live NFL scoreboard with per-play Expected Points and Win Probability charts. Updates every 30 seconds during games. EP and WP powered by the same LightGBM models."
+          stats={[
+            { label: 'Source', value: 'ESPN API' },
+            { label: 'Interval', value: '30s poll' },
+            { label: 'Season', value: 'Sep–Jan' },
+          ]}
+          onClick={() => onNavigate('live')}
         />
       </div>
 
