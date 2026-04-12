@@ -23,25 +23,37 @@ const C = {
   fontCond: "'EndzoneSansCond', 'All-ProSans', sans-serif",
 }
 
-// ─── Ensure a team hex color reads well on our dark background ────────────────
-function chartColor(hex = '888888') {
-  const h = hex.replace('#', '').slice(0, 6).padEnd(6, '0')
-  const r = parseInt(h.slice(0,2), 16) / 255
-  const g = parseInt(h.slice(2,4), 16) / 255
-  const b = parseInt(h.slice(4,6), 16) / 255
-  const lum = 0.2126*r + 0.7152*g + 0.0722*b
-  if (lum >= 0.1) return `#${h}`               // light enough, use as-is
-  // Too dark: keep hue/saturation but push lightness to ~58%
-  const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min
-  let hDeg = 0
-  if (d > 0) {
-    if (max === r) hDeg = ((g - b) / d + 6) % 6
-    else if (max === g) hDeg = (b - r) / d + 2
-    else hDeg = (r - g) / d + 4
+// ─── Ensure a team hex color reads well on our dark (#0f0f13) background ──────
+// Uses HSL lightness (not luminance) so dark navies like #002244 are caught.
+// Tries alt_color first when primary is too dark; boosts hue as last resort.
+function chartColor(primary = '888888', alt = '') {
+  const parse = (hex) => {
+    const h = hex.replace('#', '').slice(0, 6).padEnd(6, '0')
+    const r = parseInt(h.slice(0,2), 16) / 255
+    const g = parseInt(h.slice(2,4), 16) / 255
+    const b = parseInt(h.slice(4,6), 16) / 255
+    const max = Math.max(r,g,b), min = Math.min(r,g,b)
+    const l = (max + min) / 2
+    const d = max - min
+    let hDeg = 0
+    if (d > 0) {
+      if (max === r) hDeg = ((g - b) / d + 6) % 6
+      else if (max === g) hDeg = (b - r) / d + 2
+      else hDeg = (r - g) / d + 4
+    }
+    const s = d === 0 ? 0 : d / (l > 0.5 ? 2 - max - min : max + min)
+    return { hex: h, l, hDeg, s }
   }
-  const l2 = (max + min) / 2
-  const s2 = d === 0 ? 0 : d / (l2 > 0.5 ? 2 - max - min : max + min)
-  return `hsl(${Math.round(hDeg * 60)}, ${Math.round(s2 * 100)}%, 58%)`
+  const THRESHOLD = 0.28   // HSL lightness cut-off for dark backgrounds
+  const p = parse(primary)
+  if (p.l >= THRESHOLD) return `#${p.hex}`
+  // Primary too dark — try alt_color before boosting
+  if (alt) {
+    const a = parse(alt)
+    if (a.l >= THRESHOLD) return `#${a.hex}`
+  }
+  // Both too dark — preserve hue/sat, force lightness to 58%
+  return `hsl(${Math.round(p.hDeg * 60)}, ${Math.round(p.s * 100)}%, 58%)`
 }
 
 // ─── Team Logo ────────────────────────────────────────────────────────────────
@@ -74,12 +86,13 @@ const fmtDelta = (v, scale = 1) =>
   v == null ? null : (v >= 0 ? '+' : '') + (v * scale).toFixed(scale === 100 ? 1 : 2) + (scale === 100 ? '%' : '')
 
 // ─── Hover Tooltip (HTML overlay, always readable at any SVG scale) ──────────
-function PlayTooltip({ play, clientX, clientY, homeAbbrev, awayAbbrev }) {
+function PlayTooltip({ play, clientX, clientY, homeAbbrev, awayAbbrev, homeCC = C.gold, awayCC = C.muted }) {
   if (!play) return null
 
   const yl      = play.yardline_100
   const isRZ    = yl != null && yl <= 20
   const posTeam = play.is_home_offense ? homeAbbrev : awayAbbrev
+  const posCC   = play.is_home_offense ? homeCC : awayCC
   const epDelta = fmtDelta(play.ep_delta)
   const wpDelta = fmtDelta(play.wp_delta, 100)
   const text    = (play.play_text || '').trim()
@@ -105,7 +118,7 @@ function PlayTooltip({ play, clientX, clientY, homeAbbrev, awayAbbrev }) {
     }}>
       {/* Possession + down/dist */}
       <div style={{ marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span style={{ color: C.gold, fontWeight: 700, fontSize: '0.78rem' }}>
+        <span style={{ color: posCC, fontWeight: 700, fontSize: '0.78rem' }}>
           {posTeam} ball
         </span>
         <span style={{ color: C.text, fontWeight: 700 }}>
@@ -189,7 +202,7 @@ function Row({ label, value }) {
 }
 
 // ─── WP Chart ─────────────────────────────────────────────────────────────────
-function WPChart({ plays, homeAbbrev, awayAbbrev, homeColor, awayColor }) {
+function WPChart({ plays, homeAbbrev, awayAbbrev, homeColor, awayColor, homeCC = C.gold, awayCC = C.muted }) {
   const [hoveredIdx, setHoveredIdx] = useState(null)
   const [tooltip, setTooltip]       = useState(null)
 
@@ -296,8 +309,8 @@ function WPChart({ plays, homeAbbrev, awayAbbrev, homeColor, awayColor }) {
           </text>
         ))}
 
-        <text x={PL + 2} y={midY - 5}  fontSize="8.5" fill={`#${homeColor}`} fontFamily={C.font} fontWeight="700">{homeAbbrev}</text>
-        <text x={PL + 2} y={midY + 13} fontSize="8.5" fill={`#${awayColor}`} fontFamily={C.font} fontWeight="700">{awayAbbrev}</text>
+        <text x={PL + 2} y={midY - 5}  fontSize="8.5" fill={homeCC} fontFamily={C.font} fontWeight="700">{homeAbbrev}</text>
+        <text x={PL + 2} y={midY + 13} fontSize="8.5" fill={awayCC} fontFamily={C.font} fontWeight="700">{awayAbbrev}</text>
       </svg>
 
       {tooltip && (
@@ -307,6 +320,8 @@ function WPChart({ plays, homeAbbrev, awayAbbrev, homeColor, awayColor }) {
           clientY={tooltip.clientY}
           homeAbbrev={homeAbbrev}
           awayAbbrev={awayAbbrev}
+          homeCC={homeCC}
+          awayCC={awayCC}
         />
       )}
     </>
@@ -314,14 +329,14 @@ function WPChart({ plays, homeAbbrev, awayAbbrev, homeColor, awayColor }) {
 }
 
 // ─── EP Chart ─────────────────────────────────────────────────────────────────
-function EPChart({ plays, homeAbbrev, awayAbbrev, homeColor = '4a9eff', awayColor = 'c9a447' }) {
+function EPChart({ plays, homeAbbrev, awayAbbrev, homeCC = C.blue, awayCC = C.gold }) {
   const [hoveredIdx, setHoveredIdx] = useState(null)
   const [tooltip, setTooltip]       = useState(null)
 
   if (!plays || plays.length < 2) return null
 
-  const homeFill = chartColor(homeColor)
-  const awayFill = chartColor(awayColor)
+  const homeFill = homeCC
+  const awayFill = awayCC
 
   const W = 720, H = 110, PL = 42, PT = 8, PB = 20, PR = 8
   const totalW = W + PL + PR, totalH = H + PT + PB
@@ -414,6 +429,8 @@ function EPChart({ plays, homeAbbrev, awayAbbrev, homeColor = '4a9eff', awayColo
           clientY={tooltip.clientY}
           homeAbbrev={homeAbbrev}
           awayAbbrev={awayAbbrev}
+          homeCC={homeCC}
+          awayCC={awayCC}
         />
       )}
     </>
@@ -454,7 +471,7 @@ function Dot({ filled }) {
   )
 }
 
-function SituationBar({ lastPlay, situation, homeAbbrev, awayAbbrev, homeTeam, awayTeam, playCount }) {
+function SituationBar({ lastPlay, situation, homeAbbrev, awayAbbrev, homeTeam, awayTeam, playCount, homeCC = C.gold, awayCC = C.muted }) {
   if (!lastPlay && !situation) return null
 
   const down  = lastPlay?.down
@@ -466,7 +483,7 @@ function SituationBar({ lastPlay, situation, homeAbbrev, awayAbbrev, homeTeam, a
   const isRZ   = yl100 != null && yl100 <= 20
 
   const posTeam  = isHomeOff != null ? (isHomeOff ? homeAbbrev : awayAbbrev) : null
-  const posColor = isHomeOff ? C.blue : C.gold
+  const posColor = isHomeOff ? homeCC : awayCC
 
   // Timeouts from live scoreboard situation
   const homeTO = situation?.home_timeouts
@@ -526,8 +543,8 @@ function SituationBar({ lastPlay, situation, homeAbbrev, awayAbbrev, homeTeam, a
           label="Timeouts"
           value={
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <TimeoutRow abbrev={awayAbbrev} count={awayTO ?? 3} color={C.gold} />
-              <TimeoutRow abbrev={homeAbbrev} count={homeTO ?? 3} color={C.blue} />
+              <TimeoutRow abbrev={awayAbbrev} count={awayTO ?? 3} color={awayCC} />
+              <TimeoutRow abbrev={homeAbbrev} count={homeTO ?? 3} color={homeCC} />
             </div>
           }
         />
@@ -603,7 +620,7 @@ function GameCard({ game, selected, onClick }) {
 }
 
 // ─── Plays Table (used inside each quarter section) ──────────────────────────
-function PlaysTable({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamId }) {
+function PlaysTable({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamId, homeCC = C.gold, awayCC = C.muted }) {
   const epDeltaColor = (v) => v == null ? C.muted : v > 0.5 ? C.green : v < -0.5 ? C.red : C.muted
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -629,7 +646,7 @@ function PlaysTable({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamId }) {
               <td style={{ padding: '0.4rem 0.6rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <TeamLogo teamId={p.is_home_offense ? homeTeamId : awayTeamId} size={16} />
-                  <span style={{ fontWeight: 700, color: p.is_home_offense ? C.blue : C.gold }}>
+                  <span style={{ fontWeight: 700, color: p.is_home_offense ? homeCC : awayCC }}>
                     {p.is_home_offense ? homeAbbrev : awayAbbrev}
                   </span>
                 </div>
@@ -661,7 +678,7 @@ function PlaysTable({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamId }) {
 }
 
 // ─── Quarter Accordion ────────────────────────────────────────────────────────
-function QuarterAccordion({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamId }) {
+function QuarterAccordion({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamId, homeCC = C.gold, awayCC = C.muted }) {
   if (!plays || plays.length === 0) return null
 
   // Group plays into ordered period buckets
@@ -743,6 +760,8 @@ function QuarterAccordion({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamI
                   awayAbbrev={awayAbbrev}
                   homeTeamId={homeTeamId}
                   awayTeamId={awayTeamId}
+                  homeCC={homeCC}
+                  awayCC={awayCC}
                 />
               </div>
             )}
@@ -912,6 +931,14 @@ export default function LiveGamesTab({ onNavigate }) {
   const plays    = gameDetail?.plays ?? []
   const lastPlay = plays.length > 0 ? plays[plays.length - 1] : null
 
+  // Resolved team colors — visible on dark background, distinct for same-primary teams
+  const homeCC = selectedGame
+    ? chartColor(selectedGame.home_team.color, selectedGame.home_team.alt_color)
+    : C.muted
+  const awayCC = selectedGame
+    ? chartColor(selectedGame.away_team.color, selectedGame.away_team.alt_color)
+    : C.muted
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: C.bg, color: C.text, fontFamily: C.font }}>
 
@@ -1047,6 +1074,8 @@ export default function LiveGamesTab({ onNavigate }) {
                 homeTeam={selectedGame.home_team}
                 awayTeam={selectedGame.away_team}
                 playCount={plays.length}
+                homeCC={homeCC}
+                awayCC={awayCC}
               />
 
               {/* Game context: venue / weather / broadcast */}
@@ -1063,6 +1092,8 @@ export default function LiveGamesTab({ onNavigate }) {
                     awayAbbrev={selectedGame.away_team.abbrev}
                     homeColor={selectedGame.home_team.color}
                     awayColor={selectedGame.away_team.color}
+                    homeCC={homeCC}
+                    awayCC={awayCC}
                   />
                   <div style={{ display: 'flex', gap: '2rem', marginTop: '0.4rem', fontSize: '0.78rem' }}>
                     <span>
@@ -1086,13 +1117,13 @@ export default function LiveGamesTab({ onNavigate }) {
                     plays={plays}
                     homeAbbrev={selectedGame.home_team.abbrev}
                     awayAbbrev={selectedGame.away_team.abbrev}
-                    homeColor={selectedGame.home_team.color}
-                    awayColor={selectedGame.away_team.color}
+                    homeCC={homeCC}
+                    awayCC={awayCC}
                   />
                   <div style={{ fontSize: '0.68rem', color: C.dim, marginTop: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
                     <span>
-                      Bar: <span style={{ color: chartColor(selectedGame.home_team.color) }}>■</span> {selectedGame.home_team.abbrev} offense &nbsp;|&nbsp;
-                      <span style={{ color: chartColor(selectedGame.away_team.color) }}>■</span> {selectedGame.away_team.abbrev} offense
+                      Bar: <span style={{ color: homeCC }}>■</span> {selectedGame.home_team.abbrev} offense &nbsp;|&nbsp;
+                      <span style={{ color: awayCC }}>■</span> {selectedGame.away_team.abbrev} offense
                     </span>
                     <span style={{ color: C.dim }}>Hover for play details</span>
                   </div>
@@ -1131,6 +1162,8 @@ export default function LiveGamesTab({ onNavigate }) {
                   awayAbbrev={selectedGame.away_team.abbrev}
                   homeTeamId={selectedGame.home_team.team_id}
                   awayTeamId={selectedGame.away_team.team_id}
+                  homeCC={homeCC}
+                  awayCC={awayCC}
                 />
               </div>
             )}
