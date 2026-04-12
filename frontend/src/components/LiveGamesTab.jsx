@@ -23,6 +23,21 @@ const C = {
   fontCond: "'EndzoneSansCond', 'All-ProSans', sans-serif",
 }
 
+// ─── Team Logo ────────────────────────────────────────────────────────────────
+function TeamLogo({ teamId, size = 32, style = {} }) {
+  if (!teamId) return null
+  return (
+    <img
+      src={`https://a.espncdn.com/i/teamlogos/nfl/500/${teamId}.png`}
+      alt=""
+      width={size}
+      height={size}
+      style={{ objectFit: 'contain', display: 'block', ...style }}
+      onError={e => { e.target.style.display = 'none' }}
+    />
+  )
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const ORDINAL = (d) => ['', 'st', 'nd', 'rd', 'th'][d] ?? 'th'
 const downStr  = (d, yd) => d ? `${d}${ORDINAL(d)} & ${yd}` : null
@@ -534,12 +549,18 @@ function GameCard({ game, selected, onClick }) {
         }} />
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
-        <span style={{ fontSize: '0.85rem', fontWeight: 800, letterSpacing: '0.05em', fontFamily: C.fontCond, textTransform: 'uppercase' }}>{away_team.abbrev}</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <TeamLogo teamId={away_team.team_id} size={20} />
+          <span style={{ fontSize: '0.85rem', fontWeight: 800, letterSpacing: '0.05em', fontFamily: C.fontCond, textTransform: 'uppercase' }}>{away_team.abbrev}</span>
+        </div>
         <span style={{ fontSize: '1.15rem', fontWeight: 900, color: isFinal || isLive ? C.text : C.muted, fontFamily: C.fontStats }}>{away_team.score}</span>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-        <span style={{ fontSize: '0.85rem', fontWeight: 800, letterSpacing: '0.05em', fontFamily: C.fontCond, textTransform: 'uppercase' }}>{home_team.abbrev}</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <TeamLogo teamId={home_team.team_id} size={20} />
+          <span style={{ fontSize: '0.85rem', fontWeight: 800, letterSpacing: '0.05em', fontFamily: C.fontCond, textTransform: 'uppercase' }}>{home_team.abbrev}</span>
+        </div>
         <span style={{ fontSize: '1.15rem', fontWeight: 900, color: isFinal || isLive ? C.text : C.muted, fontFamily: C.fontStats }}>{home_team.score}</span>
       </div>
       <div style={{
@@ -555,72 +576,142 @@ function GameCard({ game, selected, onClick }) {
   )
 }
 
-// ─── Recent Plays Table ───────────────────────────────────────────────────────
-function RecentPlays({ plays, homeAbbrev, awayAbbrev }) {
-  if (!plays || plays.length === 0) return null
-  const recent = [...plays].slice(-15).reverse()
-
+// ─── Plays Table (used inside each quarter section) ──────────────────────────
+function PlaysTable({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamId }) {
   const epDeltaColor = (v) => v == null ? C.muted : v > 0.5 ? C.green : v < -0.5 ? C.red : C.muted
-
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem', fontFamily: C.font }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.74rem', fontFamily: C.font }}>
         <thead>
           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-            {['QTR', 'CLOCK', 'TEAM', 'SITUATION', 'FIELD POS', 'EP', 'ΔEPA', 'HOME WP%', 'PLAY'].map(h => (
+            {['CLOCK', 'TEAM', 'SITUATION', 'FIELD POS', 'EP', 'ΔEPA', 'HOME WP%', 'PLAY'].map(h => (
               <th key={h} style={{
-                padding: '0.4rem 0.6rem', textAlign: 'left',
-                color: C.muted, fontWeight: 600, fontSize: '0.63rem',
+                padding: '0.35rem 0.6rem', textAlign: h === 'EP' || h === 'ΔEPA' || h === 'HOME WP%' ? 'right' : 'left',
+                color: C.muted, fontWeight: 600, fontSize: '0.62rem',
                 letterSpacing: '0.06em', whiteSpace: 'nowrap',
               }}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {recent.map((p, i) => (
+          {plays.map((p, i) => (
             <tr key={p.play_id || i} style={{
               borderBottom: `1px solid ${C.border}`,
               backgroundColor: p.scoring_play ? C.goldDim : 'transparent',
             }}>
-              <td style={{ padding: '0.45rem 0.6rem', color: C.muted }}>Q{p.period}</td>
-              <td style={{ padding: '0.45rem 0.6rem', color: C.muted, whiteSpace: 'nowrap' }}>{p.clock}</td>
-              <td style={{ padding: '0.45rem 0.6rem', fontWeight: 700, color: p.is_home_offense ? C.blue : C.gold }}>
-                {p.is_home_offense ? homeAbbrev : awayAbbrev}
+              <td style={{ padding: '0.4rem 0.6rem', color: C.muted, whiteSpace: 'nowrap' }}>{p.clock}</td>
+              <td style={{ padding: '0.4rem 0.6rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <TeamLogo teamId={p.is_home_offense ? homeTeamId : awayTeamId} size={16} />
+                  <span style={{ fontWeight: 700, color: p.is_home_offense ? C.blue : C.gold }}>
+                    {p.is_home_offense ? homeAbbrev : awayAbbrev}
+                  </span>
+                </div>
               </td>
-              <td style={{ padding: '0.45rem 0.6rem', color: C.muted, whiteSpace: 'nowrap' }}>
+              <td style={{ padding: '0.4rem 0.6rem', color: C.muted, whiteSpace: 'nowrap' }}>
                 {p.down ? `${p.down}${ORDINAL(p.down)} & ${p.ydstogo}` : '—'}
               </td>
-              <td style={{ padding: '0.45rem 0.6rem', color: p.yardline_100 <= 20 ? C.red : C.muted, whiteSpace: 'nowrap' }}>
+              <td style={{ padding: '0.4rem 0.6rem', color: p.yardline_100 <= 20 ? C.red : C.muted, whiteSpace: 'nowrap' }}>
                 {fieldStr(p.yardline_100)}
               </td>
-              <td style={{
-                padding: '0.45rem 0.6rem',
-                color: p.ep > 0.2 ? C.green : p.ep < -0.2 ? C.red : C.muted,
-                fontWeight: 600, textAlign: 'right',
-              }}>
+              <td style={{ padding: '0.4rem 0.6rem', color: p.ep > 0.2 ? C.green : p.ep < -0.2 ? C.red : C.muted, fontWeight: 600, textAlign: 'right' }}>
                 {fmtEP(p.ep)}
               </td>
-              <td style={{
-                padding: '0.45rem 0.6rem',
-                color: epDeltaColor(p.ep_delta),
-                fontWeight: 600, textAlign: 'right',
-              }}>
+              <td style={{ padding: '0.4rem 0.6rem', color: epDeltaColor(p.ep_delta), fontWeight: 600, textAlign: 'right' }}>
                 {fmtDelta(p.ep_delta) ?? '—'}
               </td>
-              <td style={{ padding: '0.45rem 0.6rem', color: C.text, textAlign: 'right' }}>
+              <td style={{ padding: '0.4rem 0.6rem', color: C.text, textAlign: 'right' }}>
                 {fmtWP(p.wp)}
               </td>
-              <td style={{
-                padding: '0.45rem 0.6rem', color: C.text,
-                maxWidth: 260, overflow: 'hidden',
-                textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
+              <td style={{ padding: '0.4rem 0.6rem', color: C.muted, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {p.play_text || '—'}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ─── Quarter Accordion ────────────────────────────────────────────────────────
+function QuarterAccordion({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamId }) {
+  if (!plays || plays.length === 0) return null
+
+  // Group plays into ordered period buckets
+  const groups = []
+  plays.forEach(p => {
+    const label = p.period <= 4 ? `Q${p.period}` : `OT${p.period - 4}`
+    const last = groups[groups.length - 1]
+    if (last && last.label === label) { last.plays.push(p) }
+    else { groups.push({ label, plays: [p] }) }
+  })
+
+  const lastLabel = groups[groups.length - 1]?.label
+  const [openSet, setOpenSet] = useState(() => new Set(lastLabel ? [lastLabel] : []))
+
+  // Auto-open any new quarter that appears
+  useEffect(() => {
+    if (lastLabel) setOpenSet(prev => prev.has(lastLabel) ? prev : new Set([...prev, lastLabel]))
+  }, [lastLabel])
+
+  const toggle = (label) => setOpenSet(prev => {
+    const next = new Set(prev)
+    next.has(label) ? next.delete(label) : next.add(label)
+    return next
+  })
+
+  return (
+    <div>
+      {groups.map(({ label, plays: qPlays }) => {
+        const isOpen = openSet.has(label)
+        const isLast = label === lastLabel
+        return (
+          <div key={label} style={{ marginBottom: '0.4rem' }}>
+            <button
+              onClick={() => toggle(label)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: isOpen ? C.surfaceHover : 'none',
+                border: `1px solid ${isOpen ? C.borderBright : C.border}`,
+                borderRadius: isOpen ? '8px 8px 0 0' : 8,
+                padding: '0.55rem 0.9rem',
+                cursor: 'pointer', fontFamily: C.font, color: C.text,
+                transition: 'background 0.12s, border-color 0.12s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.08em', color: isLast ? C.gold : C.text }}>
+                  {label}
+                </span>
+                {isLast && (
+                  <span style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.08em', color: C.green,
+                    backgroundColor: 'rgba(52,208,88,0.1)', border: '1px solid rgba(52,208,88,0.3)',
+                    borderRadius: 3, padding: '1px 5px' }}>CURRENT</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <span style={{ fontSize: '0.68rem', color: C.muted }}>{qPlays.length} plays</span>
+                <span style={{ fontSize: '0.65rem', color: C.dim }}>{isOpen ? '▾' : '▸'}</span>
+              </div>
+            </button>
+            {isOpen && (
+              <div style={{
+                border: `1px solid ${C.borderBright}`, borderTop: 'none',
+                borderRadius: '0 0 8px 8px', overflow: 'hidden',
+              }}>
+                <PlaysTable
+                  plays={qPlays}
+                  homeAbbrev={homeAbbrev}
+                  awayAbbrev={awayAbbrev}
+                  homeTeamId={homeTeamId}
+                  awayTeamId={awayTeamId}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -805,19 +896,19 @@ export default function LiveGamesTab({ onNavigate }) {
             }}>
               {/* Centered score block */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '2.5rem' }}>
                   <ScoreBlock
                     label="AWAY"
                     abbrev={selectedGame.away_team.abbrev}
                     score={gameDetail?.away_team.score ?? selectedGame.away_team.score}
-                    color={`#${selectedGame.away_team.color}`}
+                    teamId={selectedGame.away_team.team_id}
                   />
-                  <span style={{ color: C.dim, fontSize: '1.2rem', fontWeight: 300, lineHeight: 1 }}>—</span>
+                  <span style={{ color: C.dim, fontSize: '1.4rem', fontWeight: 300, lineHeight: 1 }}>—</span>
                   <ScoreBlock
                     label="HOME"
                     abbrev={selectedGame.home_team.abbrev}
                     score={gameDetail?.home_team.score ?? selectedGame.home_team.score}
-                    color={`#${selectedGame.home_team.color}`}
+                    teamId={selectedGame.home_team.team_id}
                   />
                 </div>
 
@@ -846,6 +937,18 @@ export default function LiveGamesTab({ onNavigate }) {
                 awayTeam={selectedGame.away_team}
                 playCount={plays.length}
               />
+
+              {/* Last play text */}
+              {lastPlay?.play_text && (
+                <div style={{
+                  borderTop: `1px solid ${C.border}`,
+                  marginTop: '0.75rem', paddingTop: '0.6rem',
+                  display: 'flex', alignItems: 'baseline', gap: '0.6rem',
+                }}>
+                  <span style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', color: C.dim, textTransform: 'uppercase', flexShrink: 0 }}>Last Play</span>
+                  <span style={{ fontSize: '0.8rem', color: C.muted, lineHeight: 1.4 }}>{lastPlay.play_text}</span>
+                </div>
+              )}
             </div>
 
             {/* Charts */}
@@ -906,7 +1009,7 @@ export default function LiveGamesTab({ onNavigate }) {
               </div>
             )}
 
-            {/* Recent plays */}
+            {/* Play-by-play accordion */}
             {plays.length > 0 && (
               <div style={{
                 backgroundColor: C.surface, border: `1px solid ${C.border}`,
@@ -914,14 +1017,16 @@ export default function LiveGamesTab({ onNavigate }) {
               }}>
                 <div style={{
                   fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.12em',
-                  color: C.muted, textTransform: 'uppercase', marginBottom: '0.5rem',
+                  color: C.muted, textTransform: 'uppercase', marginBottom: '0.75rem',
                 }}>
-                  Recent Plays (last {Math.min(plays.length, 15)})
+                  Play-by-Play — {plays.length} plays
                 </div>
-                <RecentPlays
+                <QuarterAccordion
                   plays={plays}
                   homeAbbrev={selectedGame.home_team.abbrev}
                   awayAbbrev={selectedGame.away_team.abbrev}
+                  homeTeamId={selectedGame.home_team.team_id}
+                  awayTeamId={selectedGame.away_team.team_id}
                 />
               </div>
             )}
@@ -941,12 +1046,15 @@ export default function LiveGamesTab({ onNavigate }) {
   )
 }
 
-function ScoreBlock({ label, abbrev, score, color }) {
+function ScoreBlock({ label, abbrev, score, teamId }) {
   return (
-    <div style={{ textAlign: 'center', minWidth: 72 }}>
-      <div style={{ fontSize: '0.58rem', color: C.muted, marginBottom: 3, letterSpacing: '0.12em', fontFamily: C.font }}>{label}</div>
-      <div style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '0.06em', color, fontFamily: C.fontCond, textTransform: 'uppercase' }}>{abbrev}</div>
-      <div style={{ fontSize: '2.4rem', fontWeight: 900, color: C.text, lineHeight: 1, fontFamily: C.fontStats, letterSpacing: '-0.02em' }}>{score}</div>
+    <div style={{ textAlign: 'center', minWidth: 88 }}>
+      <div style={{ fontSize: '0.58rem', color: C.muted, marginBottom: 6, letterSpacing: '0.12em', fontFamily: C.font }}>{label}</div>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
+        <TeamLogo teamId={teamId} size={52} />
+      </div>
+      <div style={{ fontSize: '1.1rem', fontWeight: 800, letterSpacing: '0.06em', color: C.text, fontFamily: C.fontCond, textTransform: 'uppercase', marginBottom: 2 }}>{abbrev}</div>
+      <div style={{ fontSize: '2.6rem', fontWeight: 900, color: C.text, lineHeight: 1, fontFamily: C.fontStats, letterSpacing: '-0.02em' }}>{score}</div>
     </div>
   )
 }
