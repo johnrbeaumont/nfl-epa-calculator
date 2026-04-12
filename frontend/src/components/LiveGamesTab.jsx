@@ -529,6 +529,14 @@ function SituationBar({ lastPlay, situation, homeAbbrev, awayAbbrev, homeTeam, a
         />
       )}
 
+      {/* Time */}
+      {period && clock && (
+        <StatChip
+          label="Time"
+          value={<span style={{ fontSize: '0.82rem', fontWeight: 700, color: C.text }}>Q{period}  {clock}</span>}
+        />
+      )}
+
       {/* Plays analyzed */}
       {playCount > 0 && (
         <StatChip
@@ -542,14 +550,6 @@ function SituationBar({ lastPlay, situation, homeAbbrev, awayAbbrev, homeTeam, a
         <StatChip
           label="Last Play"
           value={<span style={{ fontSize: '0.8rem', color: C.muted, lineHeight: 1.5 }}>{lastPlay.play_text}</span>}
-        />
-      )}
-
-      {/* Time */}
-      {period && clock && (
-        <StatChip
-          label="Time"
-          value={<span style={{ fontSize: '0.82rem', fontWeight: 700, color: C.text }}>Q{period}  {clock}</span>}
         />
       )}
 
