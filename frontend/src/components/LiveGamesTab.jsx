@@ -23,6 +23,27 @@ const C = {
   fontCond: "'EndzoneSansCond', 'All-ProSans', sans-serif",
 }
 
+// ─── Ensure a team hex color reads well on our dark background ────────────────
+function chartColor(hex = '888888') {
+  const h = hex.replace('#', '').slice(0, 6).padEnd(6, '0')
+  const r = parseInt(h.slice(0,2), 16) / 255
+  const g = parseInt(h.slice(2,4), 16) / 255
+  const b = parseInt(h.slice(4,6), 16) / 255
+  const lum = 0.2126*r + 0.7152*g + 0.0722*b
+  if (lum >= 0.1) return `#${h}`               // light enough, use as-is
+  // Too dark: keep hue/saturation but push lightness to ~58%
+  const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min
+  let hDeg = 0
+  if (d > 0) {
+    if (max === r) hDeg = ((g - b) / d + 6) % 6
+    else if (max === g) hDeg = (b - r) / d + 2
+    else hDeg = (r - g) / d + 4
+  }
+  const l2 = (max + min) / 2
+  const s2 = d === 0 ? 0 : d / (l2 > 0.5 ? 2 - max - min : max + min)
+  return `hsl(${Math.round(hDeg * 60)}, ${Math.round(s2 * 100)}%, 58%)`
+}
+
 // ─── Team Logo ────────────────────────────────────────────────────────────────
 function TeamLogo({ teamId, size = 32, style = {} }) {
   if (!teamId) return null
@@ -293,11 +314,14 @@ function WPChart({ plays, homeAbbrev, awayAbbrev, homeColor, awayColor }) {
 }
 
 // ─── EP Chart ─────────────────────────────────────────────────────────────────
-function EPChart({ plays, homeAbbrev, awayAbbrev }) {
+function EPChart({ plays, homeAbbrev, awayAbbrev, homeColor = '4a9eff', awayColor = 'c9a447' }) {
   const [hoveredIdx, setHoveredIdx] = useState(null)
   const [tooltip, setTooltip]       = useState(null)
 
   if (!plays || plays.length < 2) return null
+
+  const homeFill = chartColor(homeColor)
+  const awayFill = chartColor(awayColor)
 
   const W = 720, H = 110, PL = 42, PT = 8, PB = 20, PR = 8
   const totalW = W + PL + PR, totalH = H + PT + PB
@@ -346,7 +370,7 @@ function EPChart({ plays, homeAbbrev, awayAbbrev }) {
           const barY = yAt(p.ep)
           const barH = Math.abs(barY - zeroY)
           const isHov = i === hoveredIdx
-          const fill  = p.is_home_offense ? C.blue : C.gold
+          const fill  = p.is_home_offense ? homeFill : awayFill
           return (
             <rect
               key={p.play_id || i}
@@ -363,9 +387,11 @@ function EPChart({ plays, homeAbbrev, awayAbbrev }) {
         <polyline points={linePoints} fill="none" stroke={`${C.muted}88`} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
 
         {/* Dots */}
-        <circle cx={xAt(n - 1)} cy={yAt(plays[n - 1].ep)} r="3.5" fill={C.gold} />
+        <circle cx={xAt(n - 1)} cy={yAt(plays[n - 1].ep)} r="3.5" fill={plays[n-1].is_home_offense ? homeFill : awayFill} />
         {hoveredIdx !== null && hoveredIdx !== n - 1 && (
-          <circle cx={xAt(hoveredIdx)} cy={yAt(plays[hoveredIdx].ep)} r="5" fill={C.gold} stroke="#0f0f13" strokeWidth="1.5" />
+          <circle cx={xAt(hoveredIdx)} cy={yAt(plays[hoveredIdx].ep)} r="5"
+            fill={plays[hoveredIdx].is_home_offense ? homeFill : awayFill}
+            stroke="#0f0f13" strokeWidth="1.5" />
         )}
 
         {[EP_MAX, 3.5, 0, -3.5, -EP_MAX].map(v => (
@@ -375,9 +401,9 @@ function EPChart({ plays, homeAbbrev, awayAbbrev }) {
         ))}
 
         {/* Legend */}
-        <rect x={PL + W - 80} y={PT} width="8" height="8" fill={C.blue}  opacity="0.8" />
+        <rect x={PL + W - 80} y={PT} width="8" height="8" fill={homeFill} opacity="0.8" />
         <text x={PL + W - 68} y={PT + 7.5} fontSize="8" fill={C.muted} fontFamily={C.font}>{homeAbbrev}</text>
-        <rect x={PL + W - 40} y={PT} width="8" height="8" fill={C.gold} opacity="0.8" />
+        <rect x={PL + W - 40} y={PT} width="8" height="8" fill={awayFill} opacity="0.8" />
         <text x={PL + W - 28} y={PT + 7.5} fontSize="8" fill={C.muted} fontFamily={C.font}>{awayAbbrev}</text>
       </svg>
 
@@ -648,24 +674,29 @@ function QuarterAccordion({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamI
   })
 
   const lastLabel = groups[groups.length - 1]?.label
+  // Default: only the current quarter open; previous quarters closed
   const [openSet, setOpenSet] = useState(() => new Set(lastLabel ? [lastLabel] : []))
 
-  // Auto-open any new quarter that appears
+  // When a new quarter starts, auto-open it (lock it open)
   useEffect(() => {
     if (lastLabel) setOpenSet(prev => prev.has(lastLabel) ? prev : new Set([...prev, lastLabel]))
   }, [lastLabel])
 
-  const toggle = (label) => setOpenSet(prev => {
-    const next = new Set(prev)
-    next.has(label) ? next.delete(label) : next.add(label)
-    return next
-  })
+  const toggle = (label) => {
+    if (label === lastLabel) return  // current quarter stays locked open
+    setOpenSet(prev => {
+      const next = new Set(prev)
+      next.has(label) ? next.delete(label) : next.add(label)
+      return next
+    })
+  }
 
   return (
     <div>
-      {groups.map(({ label, plays: qPlays }) => {
+      {[...groups].reverse().map(({ label, plays: qPlays }) => {
         const isOpen = openSet.has(label)
         const isLast = label === lastLabel
+        const canToggle = !isLast
         return (
           <div key={label} style={{ marginBottom: '0.4rem' }}>
             <button
@@ -676,7 +707,8 @@ function QuarterAccordion({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamI
                 border: `1px solid ${isOpen ? C.borderBright : C.border}`,
                 borderRadius: isOpen ? '8px 8px 0 0' : 8,
                 padding: '0.55rem 0.9rem',
-                cursor: 'pointer', fontFamily: C.font, color: C.text,
+                cursor: canToggle ? 'pointer' : 'default',
+                fontFamily: C.font, color: C.text,
                 transition: 'background 0.12s, border-color 0.12s',
               }}
             >
@@ -692,7 +724,12 @@ function QuarterAccordion({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamI
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 <span style={{ fontSize: '0.68rem', color: C.muted }}>{qPlays.length} plays</span>
-                <span style={{ fontSize: '0.65rem', color: C.dim }}>{isOpen ? '▾' : '▸'}</span>
+                {canToggle && (
+                  <span style={{
+                    fontSize: '0.8rem', fontWeight: 700, color: C.dim,
+                    width: 14, textAlign: 'center', lineHeight: 1,
+                  }}>{isOpen ? '−' : '+'}</span>
+                )}
               </div>
             </button>
             {isOpen && (
@@ -981,17 +1018,22 @@ export default function LiveGamesTab({ onNavigate }) {
                   />
                 </div>
 
-                {/* Status + loading */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {/* Status + last play inline */}
+                <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', justifyContent: 'center', gap: '0.4rem 0.6rem', maxWidth: 680 }}>
                   <span style={{
-                    fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.06em',
-                    color: selectedGame.status.is_live ? C.green
-                      : selectedGame.status.is_final ? C.muted : C.gold,
+                    fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.06em', flexShrink: 0,
+                    color: selectedGame.status.is_live ? C.green : selectedGame.status.is_final ? C.muted : C.gold,
                   }}>
                     {gameDetail?.status.detail || selectedGame.status.detail || '—'}
                   </span>
-                  {detailLoading && (
-                    <span style={{ fontSize: '0.65rem', color: C.gold }}>› Updating…</span>
+                  {detailLoading && <span style={{ fontSize: '0.65rem', color: C.gold, flexShrink: 0 }}>› Updating…</span>}
+                  {lastPlay?.play_text && (
+                    <>
+                      <span style={{ color: C.dim, flexShrink: 0 }}>·</span>
+                      <span style={{ fontSize: '0.76rem', color: C.muted, lineHeight: 1.4 }}>
+                        {lastPlay.play_text.length > 90 ? lastPlay.play_text.slice(0, 90) + '…' : lastPlay.play_text}
+                      </span>
+                    </>
                   )}
                 </div>
               </div>
@@ -1006,18 +1048,6 @@ export default function LiveGamesTab({ onNavigate }) {
                 awayTeam={selectedGame.away_team}
                 playCount={plays.length}
               />
-
-              {/* Last play text */}
-              {lastPlay?.play_text && (
-                <div style={{
-                  borderTop: `1px solid ${C.border}`,
-                  marginTop: '0.75rem', paddingTop: '0.6rem',
-                  display: 'flex', alignItems: 'baseline', gap: '0.6rem',
-                }}>
-                  <span style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', color: C.dim, textTransform: 'uppercase', flexShrink: 0, fontFamily: C.font }}>Last Play</span>
-                  <span style={{ fontSize: '0.8rem', color: C.muted, lineHeight: 1.4, fontFamily: C.font }}>{lastPlay.play_text}</span>
-                </div>
-              )}
 
               {/* Game context: venue / weather / broadcast */}
               <GameInfoBar context={gameDetail?.context} />
@@ -1056,11 +1086,13 @@ export default function LiveGamesTab({ onNavigate }) {
                     plays={plays}
                     homeAbbrev={selectedGame.home_team.abbrev}
                     awayAbbrev={selectedGame.away_team.abbrev}
+                    homeColor={selectedGame.home_team.color}
+                    awayColor={selectedGame.away_team.color}
                   />
                   <div style={{ fontSize: '0.68rem', color: C.dim, marginTop: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
                     <span>
-                      Bar: <span style={{ color: C.blue }}>■</span> {selectedGame.home_team.abbrev} offense &nbsp;|&nbsp;
-                      <span style={{ color: C.gold }}>■</span> {selectedGame.away_team.abbrev} offense
+                      Bar: <span style={{ color: chartColor(selectedGame.home_team.color) }}>■</span> {selectedGame.home_team.abbrev} offense &nbsp;|&nbsp;
+                      <span style={{ color: chartColor(selectedGame.away_team.color) }}>■</span> {selectedGame.away_team.abbrev} offense
                     </span>
                     <span style={{ color: C.dim }}>Hover for play details</span>
                   </div>
