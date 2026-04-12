@@ -17,7 +17,10 @@ const C = {
   green: '#34d058',
   red: '#f85149',
   blue: '#4a9eff',
-  font: "'Courier New', monospace",
+  font: "'All-ProSans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  fontDisplay: "'AllProDisplay', 'All-ProSans', sans-serif",
+  fontStats: "'All-ProStats', 'All-ProSans', sans-serif",
+  fontCond: "'EndzoneSansCond', 'All-ProSans', sans-serif",
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -532,12 +535,12 @@ function GameCard({ game, selected, onClick }) {
       )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
-        <span style={{ fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.03em' }}>{away_team.abbrev}</span>
-        <span style={{ fontSize: '1.05rem', fontWeight: 800, color: isFinal || isLive ? C.text : C.muted }}>{away_team.score}</span>
+        <span style={{ fontSize: '0.85rem', fontWeight: 800, letterSpacing: '0.05em', fontFamily: C.fontCond, textTransform: 'uppercase' }}>{away_team.abbrev}</span>
+        <span style={{ fontSize: '1.15rem', fontWeight: 900, color: isFinal || isLive ? C.text : C.muted, fontFamily: C.fontStats }}>{away_team.score}</span>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-        <span style={{ fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.03em' }}>{home_team.abbrev}</span>
-        <span style={{ fontSize: '1.05rem', fontWeight: 800, color: isFinal || isLive ? C.text : C.muted }}>{home_team.score}</span>
+        <span style={{ fontSize: '0.85rem', fontWeight: 800, letterSpacing: '0.05em', fontFamily: C.fontCond, textTransform: 'uppercase' }}>{home_team.abbrev}</span>
+        <span style={{ fontSize: '1.15rem', fontWeight: 900, color: isFinal || isLive ? C.text : C.muted, fontFamily: C.fontStats }}>{home_team.score}</span>
       </div>
       <div style={{
         fontSize: '0.68rem',
@@ -629,6 +632,7 @@ function SectionHeader({ children }) {
       fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.14em',
       color: C.gold, textTransform: 'uppercase', marginBottom: '0.75rem',
       display: 'flex', alignItems: 'center', gap: '0.5rem',
+      fontFamily: C.font,
     }}>
       <span>{'>'}</span><span>{children}</span>
     </div>
@@ -799,18 +803,16 @@ export default function LiveGamesTab({ onNavigate }) {
               backgroundColor: C.surface, border: `1px solid ${C.border}`,
               borderRadius: 10, padding: '1rem 1.4rem', marginBottom: '1rem',
             }}>
-              {/* Top row: teams + scores + status */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-
-                {/* Scores */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+              {/* Centered score block */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
                   <ScoreBlock
                     label="AWAY"
                     abbrev={selectedGame.away_team.abbrev}
                     score={gameDetail?.away_team.score ?? selectedGame.away_team.score}
                     color={`#${selectedGame.away_team.color}`}
                   />
-                  <span style={{ color: C.dim, fontSize: '0.9rem', fontWeight: 600 }}>@</span>
+                  <span style={{ color: C.dim, fontSize: '1.2rem', fontWeight: 300, lineHeight: 1 }}>—</span>
                   <ScoreBlock
                     label="HOME"
                     abbrev={selectedGame.home_team.abbrev}
@@ -819,18 +821,17 @@ export default function LiveGamesTab({ onNavigate }) {
                   />
                 </div>
 
-                {/* Status */}
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{
-                    fontSize: '0.85rem', fontWeight: 700,
+                {/* Status + loading */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{
+                    fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.06em',
                     color: selectedGame.status.is_live ? C.green
                       : selectedGame.status.is_final ? C.muted : C.gold,
-                    marginBottom: 2,
                   }}>
                     {gameDetail?.status.detail || selectedGame.status.detail || '—'}
-                  </div>
+                  </span>
                   {detailLoading && (
-                    <div style={{ fontSize: '0.68rem', color: C.gold }}>› Updating…</div>
+                    <span style={{ fontSize: '0.65rem', color: C.gold }}>› Updating…</span>
                   )}
                 </div>
               </div>
@@ -942,10 +943,10 @@ export default function LiveGamesTab({ onNavigate }) {
 
 function ScoreBlock({ label, abbrev, score, color }) {
   return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: '0.6rem', color: C.muted, marginBottom: 2, letterSpacing: '0.08em' }}>{label}</div>
-      <div style={{ fontSize: '1.05rem', fontWeight: 800, letterSpacing: '0.04em', color }}>{abbrev}</div>
-      <div style={{ fontSize: '1.7rem', fontWeight: 900, color: C.text, lineHeight: 1.1 }}>{score}</div>
+    <div style={{ textAlign: 'center', minWidth: 72 }}>
+      <div style={{ fontSize: '0.58rem', color: C.muted, marginBottom: 3, letterSpacing: '0.12em', fontFamily: C.font }}>{label}</div>
+      <div style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '0.06em', color, fontFamily: C.fontCond, textTransform: 'uppercase' }}>{abbrev}</div>
+      <div style={{ fontSize: '2.4rem', fontWeight: 900, color: C.text, lineHeight: 1, fontFamily: C.fontStats, letterSpacing: '-0.02em' }}>{score}</div>
     </div>
   )
 }
