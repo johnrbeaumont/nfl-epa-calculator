@@ -716,6 +716,73 @@ function QuarterAccordion({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamI
   )
 }
 
+// ─── Game Info Bar ────────────────────────────────────────────────────────────
+function GameInfoBar({ context }) {
+  if (!context) return null
+
+  const items = []
+
+  if (context.venue_name) {
+    const loc = context.neutral_site
+      ? `${context.venue_name}${context.venue_location ? ' · ' + context.venue_location : ''} · Neutral`
+      : context.venue_location
+        ? `${context.venue_name} · ${context.venue_location}`
+        : context.venue_name
+    items.push({ label: 'Stadium', value: loc })
+  }
+
+  const surfaceLabel = context.indoor
+    ? 'Indoor'
+    : context.surface || null
+  if (surfaceLabel) items.push({ label: 'Surface', value: surfaceLabel })
+
+  if (context.kickoff_utc) {
+    try {
+      const d = new Date(context.kickoff_utc)
+      const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short', hour12: true })
+      const date = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+      items.push({ label: 'Kickoff', value: `${time} · ${date}` })
+    } catch { /* ignore bad dates */ }
+  }
+
+  if (!context.indoor && context.weather_desc) {
+    items.push({ label: 'Weather', value: context.weather_desc })
+  }
+  if (!context.indoor && context.wind) {
+    items.push({ label: 'Wind', value: context.wind })
+  }
+
+  if (context.broadcast) items.push({ label: 'TV', value: context.broadcast })
+
+  if (context.attendance) {
+    items.push({ label: 'Attendance', value: context.attendance.toLocaleString() })
+  }
+
+  if (items.length === 0) return null
+
+  return (
+    <div style={{
+      borderTop: `1px solid ${C.border}`,
+      paddingTop: '0.85rem', marginTop: '0.85rem',
+      display: 'flex', flexWrap: 'wrap', gap: '0 2.5rem',
+      rowGap: '0.75rem',
+    }}>
+      {items.map(({ label, value }) => (
+        <div key={label}>
+          <div style={{
+            fontSize: '0.57rem', fontWeight: 700, letterSpacing: '0.11em',
+            color: C.dim, textTransform: 'uppercase', marginBottom: 3,
+            fontFamily: C.font,
+          }}>{label}</div>
+          <div style={{ fontSize: '0.79rem', color: C.muted, fontFamily: C.font }}>
+            {value}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Misc UI Helpers ──────────────────────────────────────────────────────────
 function SectionHeader({ children }) {
   return (
@@ -896,19 +963,21 @@ export default function LiveGamesTab({ onNavigate }) {
             }}>
               {/* Centered score block */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '2.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
                   <ScoreBlock
                     label="AWAY"
                     abbrev={selectedGame.away_team.abbrev}
                     score={gameDetail?.away_team.score ?? selectedGame.away_team.score}
                     teamId={selectedGame.away_team.team_id}
+                    side="left"
                   />
-                  <span style={{ color: C.dim, fontSize: '1.4rem', fontWeight: 300, lineHeight: 1 }}>—</span>
+                  <span style={{ color: C.border, fontSize: '2rem', fontWeight: 200, lineHeight: 1 }}>|</span>
                   <ScoreBlock
                     label="HOME"
                     abbrev={selectedGame.home_team.abbrev}
                     score={gameDetail?.home_team.score ?? selectedGame.home_team.score}
                     teamId={selectedGame.home_team.team_id}
+                    side="right"
                   />
                 </div>
 
@@ -945,10 +1014,13 @@ export default function LiveGamesTab({ onNavigate }) {
                   marginTop: '0.75rem', paddingTop: '0.6rem',
                   display: 'flex', alignItems: 'baseline', gap: '0.6rem',
                 }}>
-                  <span style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', color: C.dim, textTransform: 'uppercase', flexShrink: 0 }}>Last Play</span>
-                  <span style={{ fontSize: '0.8rem', color: C.muted, lineHeight: 1.4 }}>{lastPlay.play_text}</span>
+                  <span style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', color: C.dim, textTransform: 'uppercase', flexShrink: 0, fontFamily: C.font }}>Last Play</span>
+                  <span style={{ fontSize: '0.8rem', color: C.muted, lineHeight: 1.4, fontFamily: C.font }}>{lastPlay.play_text}</span>
                 </div>
               )}
+
+              {/* Game context: venue / weather / broadcast */}
+              <GameInfoBar context={gameDetail?.context} />
             </div>
 
             {/* Charts */}
@@ -1046,15 +1118,23 @@ export default function LiveGamesTab({ onNavigate }) {
   )
 }
 
-function ScoreBlock({ label, abbrev, score, teamId }) {
-  return (
-    <div style={{ textAlign: 'center', minWidth: 88 }}>
-      <div style={{ fontSize: '0.58rem', color: C.muted, marginBottom: 6, letterSpacing: '0.12em', fontFamily: C.font }}>{label}</div>
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
-        <TeamLogo teamId={teamId} size={52} />
+function ScoreBlock({ label, abbrev, score, teamId, side = 'left' }) {
+  const identity = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      {side === 'left' && <TeamLogo teamId={teamId} size={52} />}
+      <div style={{ textAlign: side === 'left' ? 'left' : 'right' }}>
+        <div style={{ fontSize: '0.58rem', color: C.muted, letterSpacing: '0.12em', marginBottom: 3, fontFamily: C.font }}>{label}</div>
+        <div style={{ fontSize: '1.2rem', fontWeight: 800, letterSpacing: '0.06em', color: C.text, fontFamily: C.fontCond, textTransform: 'uppercase' }}>{abbrev}</div>
       </div>
-      <div style={{ fontSize: '1.1rem', fontWeight: 800, letterSpacing: '0.06em', color: C.text, fontFamily: C.fontCond, textTransform: 'uppercase', marginBottom: 2 }}>{abbrev}</div>
-      <div style={{ fontSize: '2.6rem', fontWeight: 900, color: C.text, lineHeight: 1, fontFamily: C.fontStats, letterSpacing: '-0.02em' }}>{score}</div>
+      {side === 'right' && <TeamLogo teamId={teamId} size={52} />}
+    </div>
+  )
+  const scoreEl = (
+    <div style={{ fontSize: '3rem', fontWeight: 900, color: C.text, lineHeight: 1, fontFamily: C.fontStats, letterSpacing: '-0.03em', minWidth: 56, textAlign: 'center' }}>{score}</div>
+  )
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+      {side === 'left' ? <>{identity}{scoreEl}</> : <>{scoreEl}{identity}</>}
     </div>
   )
 }

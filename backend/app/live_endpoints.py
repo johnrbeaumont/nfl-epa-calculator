@@ -268,6 +268,52 @@ async def live_game_detail(game_id: str, request: Request):
     home_score = int(home_comp.get("score", 0) or 0)
     away_score = int(away_comp.get("score", 0) or 0)
 
+    # ── Context: venue / weather / broadcast ──────────────────────────────────
+    venue = comp.get("venue") or (data.get("gameInfo") or {}).get("venue") or {}
+    weather = comp.get("weather") or data.get("weather") or {}
+    weather = weather if isinstance(weather, dict) else {}
+
+    broadcasts = comp.get("broadcasts") or []
+    broadcast_names: list[str] = []
+    for b in (broadcasts or []):
+        broadcast_names.extend(b.get("names") or [])
+
+    venue_addr = venue.get("address") or {}
+    venue_city  = venue_addr.get("city", "")
+    venue_state = venue_addr.get("state", "")
+    venue_location = ", ".join(filter(None, [venue_city, venue_state]))
+
+    wind_obj = weather.get("wind") or {}
+    wind_speed = wind_obj.get("speed")
+    wind_dir   = wind_obj.get("direction", "")
+    wind_str   = f"{wind_speed} mph {wind_dir}".strip() if wind_speed is not None else None
+
+    # Attendance may be int or {"value": N}
+    att_raw = comp.get("attendance") or (data.get("gameInfo") or {}).get("attendance") or 0
+    attendance_val: int | None = None
+    if isinstance(att_raw, dict):
+        attendance_val = int(att_raw.get("value", 0) or 0) or None
+    elif att_raw:
+        attendance_val = int(att_raw) or None
+
+    surface_raw = str(venue.get("surface") or "")
+    if not surface_raw:
+        surface_raw = "Grass" if venue.get("grass") else ""
+
+    context = {
+        "venue_name":     str(venue.get("fullName") or venue.get("name") or ""),
+        "venue_location": venue_location,
+        "surface":        surface_raw,
+        "indoor":         bool(venue.get("indoor", False)),
+        "temperature":    int(weather["temperature"]) if weather.get("temperature") is not None else None,
+        "weather_desc":   str(weather.get("displayValue") or ""),
+        "wind":           wind_str,
+        "kickoff_utc":    str(comp.get("startDate") or ""),
+        "broadcast":      ", ".join(broadcast_names) if broadcast_names else "",
+        "attendance":     attendance_val,
+        "neutral_site":   bool(comp.get("neutralSite", False)),
+    }
+
     game_info = {
         "home_team": {
             "abbrev": home_abbrev,
@@ -291,6 +337,7 @@ async def live_game_detail(game_id: str, request: Request):
             ),
             "is_final": "FINAL" in state_name,
         },
+        "context": context,
     }
 
     # Collect all plays from drives (previous completed + current)
