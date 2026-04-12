@@ -550,12 +550,25 @@ function SituationBar({ lastPlay, situation, homeAbbrev, awayAbbrev, homeTeam, a
         />
       )}
 
-      {/* Plays analyzed — push to right */}
+      {/* Plays analyzed */}
       {playCount > 0 && (
         <StatChip
           label="Plays analyzed"
           value={<span style={{ fontSize: '0.82rem', fontWeight: 700, color: C.muted }}>{playCount}</span>}
         />
+      )}
+
+      {/* Last play — full width, no truncation */}
+      {lastPlay?.play_text && (
+        <div style={{ width: '100%', marginTop: '0.1rem' }}>
+          <div style={{
+            fontSize: '0.57rem', fontWeight: 700, letterSpacing: '0.1em',
+            color: C.dim, textTransform: 'uppercase', marginBottom: 3,
+          }}>Last Play</div>
+          <div style={{ fontSize: '0.8rem', color: C.muted, lineHeight: 1.5 }}>
+            {lastPlay.play_text}
+          </div>
+        </div>
       )}
     </div>
   )
@@ -1045,23 +1058,15 @@ export default function LiveGamesTab({ onNavigate }) {
                   />
                 </div>
 
-                {/* Status + last play inline */}
-                <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', justifyContent: 'center', gap: '0.4rem 0.6rem', maxWidth: 680 }}>
+                {/* Status */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span style={{
-                    fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.06em', flexShrink: 0,
+                    fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.06em',
                     color: selectedGame.status.is_live ? C.green : selectedGame.status.is_final ? C.muted : C.gold,
                   }}>
                     {gameDetail?.status.detail || selectedGame.status.detail || '—'}
                   </span>
-                  {detailLoading && <span style={{ fontSize: '0.65rem', color: C.gold, flexShrink: 0 }}>› Updating…</span>}
-                  {lastPlay?.play_text && (
-                    <>
-                      <span style={{ color: C.dim, flexShrink: 0 }}>·</span>
-                      <span style={{ fontSize: '0.76rem', color: C.muted, lineHeight: 1.4 }}>
-                        {lastPlay.play_text.length > 90 ? lastPlay.play_text.slice(0, 90) + '…' : lastPlay.play_text}
-                      </span>
-                    </>
-                  )}
+                  {detailLoading && <span style={{ fontSize: '0.65rem', color: C.gold }}>› Updating…</span>}
                 </div>
               </div>
 
