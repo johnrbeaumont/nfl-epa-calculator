@@ -309,8 +309,8 @@ function WPChart({ plays, homeAbbrev, awayAbbrev, homeColor, awayColor, homeCC =
           </text>
         ))}
 
-        <text x={PL + 2} y={midY - 5}  fontSize="8.5" fill={homeCC} fontFamily={C.font} fontWeight="700">{homeAbbrev}</text>
-        <text x={PL + 2} y={midY + 13} fontSize="8.5" fill={awayCC} fontFamily={C.font} fontWeight="700">{awayAbbrev}</text>
+        <text x={PL + 4} y={PT + 12}       fontSize="8.5" fill={homeCC} fontFamily={C.font} fontWeight="700">{homeAbbrev}</text>
+        <text x={PL + 4} y={PT + H - 4}   fontSize="8.5" fill={awayCC} fontFamily={C.font} fontWeight="700">{awayAbbrev}</text>
       </svg>
 
       {tooltip && (
@@ -640,7 +640,7 @@ function PlaysTable({ plays, homeAbbrev, awayAbbrev, homeTeamId, awayTeamId, hom
           {plays.map((p, i) => (
             <tr key={p.play_id || i} style={{
               borderBottom: `1px solid ${C.border}`,
-              backgroundColor: p.scoring_play ? C.goldDim : 'transparent',
+              backgroundColor: 'transparent',
             }}>
               <td style={{ padding: '0.4rem 0.6rem', color: C.muted, whiteSpace: 'nowrap' }}>{p.clock}</td>
               <td style={{ padding: '0.4rem 0.6rem' }}>
